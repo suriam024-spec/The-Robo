@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="th">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>The Robo - MVP (Milestone 3)</title>
+        <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            margin-bottom: 5px;
+            color: #00bcd4;
+        }
+        #game-info {
+            margin-bottom: 10px;
+            font-size: 1rem;
+            color: #b0bec5;
+            text-align: center;
+        }
+        #board-container {
+            max-width: 100%;
+            overflow: auto;
+            margin-bottom: 15px;
+            padding: 5px;
+        }
+        #board {
+            display: grid;
+            gap: 2px;
+            background-color: #333;
+            padding: 4px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            margin: 0 auto;
+        }
+        .cell {
+            width: 45px;
+            height: 45px;
+            background-color: #1e1e1e;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #666;
+            border-radius: 4px;
+            position: relative;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+        .cell:hover {
+            border: 1px solid #00bcd4;
+        }
+        .cell.start {
+            background-color: #1f3a3a;
+            border: 1px solid #00bcd4;
+            color: #00bcd4;
+        }
+        .cell.locked {
+            background-color: #2a2222;
+            border: 1px dashed #553333;
+            color: #775555;
+            cursor: not-allowed;
+        }
+        /* Obstacle Styles */
+        .cell.wall {
+            background-color: #424242;
+            border: 2px solid #757575;
+            color: #fff;
+        }
+        .cell.oil {
+            background-color: #3e2723;
+            border: 1px solid #ffb300;
+            color: #ffb300;
+        }
+        .robo {
+            width: 34px;
+            height: 34px;
+            background-color: #ff9800;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #000;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        #controls {
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 100%;
+            max-width: 480px;
+            box-sizing: border-box;
+            align-items: center;
+        }
+        .control-section {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+        }
+        .control-section:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        .section-title {
+            font-weight: bold;
+            color: #00bcd4;
+            font-size: 0.9rem;
+        }
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            background-color: #00bcd4;
+            color: #121212;
+            border: none;
+            padding: 8px 14px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background-color: #008ba3;
+            color: #fff;
+        }
+        button.secondary {
+            background-color: #424242;
+            color: #e0e0e0;
+        }
+        button.secondary:hover {
+            background-color: #616161;
+        }
+        button.active-mode {
+            outline: 2px solid #00bcd4;
+            box-shadow: 0 0 8px #00bcd4;
+        }
+
+        /* Select box style */
+        select {
+            background-color: #2a2a2a;
+            color: #e0e0e0;
+            border: 1px solid #00bcd4;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        /* Popup Banner */
+        #popup-banner {
+            position: fixed;
+            top: 20px;
+            background-color: #d32f2f;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            display: none;
+            z-index: 1000;
+            animation: fadeInOut 0.3s ease;
+        }
+        @keyframes fadeInOut {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        </style>
+    </head>
+    <body>
+        <!-- Popup แจ้งเตือน -->
+        <div id="popup-banner">⚠️ หุ่นยนต์ตกขอบแมพ! วาปกลับจุด START</div>
+        <h1>The Robo</h1>
+        <div id="game-info">สถานะ: รอรับคำสั่งเคลื่อนที่</div>
+        <div id="board-container">
+            <div id="board"></div>
+        </div>
+        <div id="controls">
+            <!-- ตั้งค่าขนาดกระดาน Dynamic -->
+            <div class="control-section">
+                <div class="section-title">⚙️ ตั้งค่าขนาดกระดาน ($n \times n$)</div>
+                <div class="btn-group">
+                    <label for="board-size-select" style="align-self: center;">ขนาด:</label>
+                    <select id="board-size-select" onchange="changeBoardSize(this.value)">
+                        <option value="5">5 x 5</option>
+                        <option value="7">7 x 7</option>
+                        <option value="9" selected>9 x 9</option>
+                        <option value="11">11 x 11</option>
+                    </select>
+                </div>
+            </div>
+            <!-- เครื่องมือเพิ่ม/ลบ Obstacle -->
+            <div class="control-section">
+                <div class="section-title">🧱 เครื่องมือแก้ไขแผนที่ (คลิกที่ช่องเพื่อวาง)</div>
+                <div class="btn-group">
+                    <button id="mode-wall" class="secondary" onclick="setEditMode('WALL')">🧱 วาง Wall</button>
+                    <button id="mode-oil" class="secondary" onclick="setEditMode('OIL')">🛢️ วาง Oil</button>
+                    <button id="mode-clear" class="secondary" onclick="setEditMode('CLEAR')">❌ ลบสิ่งกีดขวาง</button>
+                    <button class="secondary" onclick="clearAllObstacles()" style="background-color: #552222;">ล้างทั้งหมด</button>
+                </div>
+            </div>
+            <!-- คำสั่งเคลื่อนที่ -->
+            <div class="control-section">
+                <div class="section-title">🕹️ แผงควบคุมคำสั่ง (Movement)</div>
+                <div class="btn-group" style="margin-bottom: 6px;">
+                    <button onclick="executeCommand('WALK')">Walk (เดิน 1)</button>
+                    <button onclick="executeCommand('WALK_PLUS')">Walk+ (เดิน 2)</button>
+                    <button onclick="executeCommand('WALK_PP')">Walk++ (เดิน 3)</button>
+                </div>
+                <div class="btn-group">
+                    <button onclick="executeCommand('TURN_LEFT')" class="secondary">Turn Left ⟲</button>
+                    <button onclick="executeCommand('TURN_RIGHT')" class="secondary">Turn Right ⟳</button>
+                    <button onclick="executeCommand('TURN_AROUND')" class="secondary">Turn Around 🔄</button>
+                </div>
+            </div>
+            <!-- ปุ่มรีเซ็ต -->
+            <div class="btn-group" style="margin-top: 5px;">
+                <button onclick="resetGame()" style="background-color: #d32f2f; color: white;">รีเซ็ตตำแหน่ง</button>
+            </div>
+        </div>
+        <script>
+        let boardSize = 9;
+        let center = Math.floor(boardSize / 2);
+
+        let robo = {
+            x: center, 
+            y: center,
+            direction: 'RIGHT' // UP, RIGHT, DOWN, LEFT
+        };
+
+        const DIRECTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
+
+        let obstacles = {};
+        let currentEditMode = null; // 'WALL', 'OIL', 'CLEAR', or null
+
+        function initDefaultObstacles() {
+            obstacles = {}; 
+        }
+
+        function showPopup(message, bgClass = '') {
+            const popup = document.getElementById('popup-banner');
+            popup.textContent = message;
+            popup.style.display = 'block';
+            if (bgClass === 'oil') {
+                popup.style.backgroundColor = '#ff9800';
+            } else if (bgClass === 'wall') {
+                popup.style.backgroundColor = '#757575';
+            } else {
+                popup.style.backgroundColor = '#d32f2f';
+            }
+
+            setTimeout(() => {
+                popup.style.display = 'none';
+            }, 2500);
+        }
+
+        function updateInfo(message) {
+            let dirText = { 'UP': 'ขึ้น (Up)', 'RIGHT': 'ขวา (Right)', 'DOWN': 'ลง (Down)', 'LEFT': 'ซ้าย (Left)' };
+            document.getElementById('game-info').textContent = 
+                `สถานะ: ${message} | ตำแหน่ง: (${robo.x}, ${robo.y}) | ทิศทาง: ${dirText[robo.direction]}`;
+        }
+
+        function changeBoardSize(newSize) {
+            boardSize = parseInt(newSize);
+            center = Math.floor(boardSize / 2);
+            initDefaultObstacles();
+            resetGame();
+        }
+
+        function setEditMode(mode) {
+            if (currentEditMode === mode) {
+                currentEditMode = null; 
+            } else {
+                currentEditMode = mode;
+            }
+
+            document.getElementById('mode-wall').classList.toggle('active-mode', currentEditMode === 'WALL');
+            document.getElementById('mode-oil').classList.toggle('active-mode', currentEditMode === 'OIL');
+            document.getElementById('mode-clear').classList.toggle('active-mode', currentEditMode === 'CLEAR');
+        }
+
+        function handleCellClick(x, y) {
+            if (!currentEditMode) return;
+
+            // ห้ามวางทับจุด START และโซน LOCK รอบๆ จุด START
+            if (x === center && y === center) return;
+            if (x >= center - 1 && x <= center + 1 && y >= center - 1 && y <= center + 1) return;
+
+            const key = `${x},${y}`;
+            if (currentEditMode === 'CLEAR') {
+                delete obstacles[key];
+            } else {
+                obstacles[key] = currentEditMode;
+            }
+            createBoard();
+        }
+
+        function clearAllObstacles() {
+            obstacles = {};
+            createBoard();
+        }
+
+        function createBoard() {
+            const boardElement = document.getElementById('board');
+            boardElement.innerHTML = '';
+
+            boardElement.style.gridTemplateColumns = `repeat(${boardSize}, 45px)`;
+            boardElement.style.gridTemplateRows = `repeat(${boardSize}, 45px)`;
+
+            for (let row = 0; row < boardSize; row++) {
+                for (let col = 0; col < boardSize; col++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell');
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+
+                    const key = `${col},${row}`;
+
+                    cell.onclick = () => handleCellClick(col, row);
+
+                    if (col === center && row === center) {
+                        cell.classList.add('start');
+                        cell.textContent = 'START';
+                    } else if (row >= center - 1 && row <= center + 1 && col >= center - 1 && col <= center + 1) {
+                        cell.classList.add('locked');
+                        cell.textContent = 'LOCK';
+                    } else if (obstacles[key] === 'WALL') {
+                        cell.classList.add('wall');
+                        cell.textContent = '🧱';
+                    } else if (obstacles[key] === 'OIL') {
+                        cell.classList.add('oil');
+                        cell.textContent = '🛢️';
+                    } else {
+                        cell.textContent = `${col},${row}`;
+                    }
+
+                    if (row === robo.y && col === robo.x) {
+                        const roboDiv = document.createElement('div');
+                        roboDiv.classList.add('robo');
+                        let arrow = '▶';
+                        if (robo.direction === 'UP') arrow = '▲';
+                        if (robo.direction === 'DOWN') arrow = '▼';
+                        if (robo.direction === 'LEFT') arrow = '◀';
+                        roboDiv.textContent = arrow;
+                        cell.appendChild(roboDiv);
+                    }
+
+                    boardElement.appendChild(cell);
+                }
+            }
+        }
+
+        function executeCommand(cmd) {
+            let currentDirIndex = DIRECTIONS.indexOf(robo.direction);
+
+            if (cmd === 'TURN_LEFT') {
+                robo.direction = DIRECTIONS[(currentDirIndex + 3) % 4];
+                updateInfo(`เลี้ยวซ้ายสำเร็จ`);
+            } else if (cmd === 'TURN_RIGHT') {
+                robo.direction = DIRECTIONS[(currentDirIndex + 1) % 4];
+                updateInfo(`เลี้ยวขวาสำเร็จ`);
+            } else if (cmd === 'TURN_AROUND') {
+                robo.direction = DIRECTIONS[(currentDirIndex + 2) % 4];
+                updateInfo(`หันหลังกลับสำเร็จ`);
+            } else {
+                let steps = 1;
+                if (cmd === 'WALK_PLUS') steps = 2;
+                if (cmd === 'WALK_PP') steps = 3;
+
+                let dx = 0, dy = 0;
+                if (robo.direction === 'UP') dy = -1;
+                if (robo.direction === 'DOWN') dy = 1;
+                if (robo.direction === 'RIGHT') dx = 1;
+                if (robo.direction === 'LEFT') dx = -1;
+
+                let currentX = robo.x;
+                let currentY = robo.y;
+                let hitWall = false;
+                let fellOff = false;
+                let slippedOil = false;
+
+                for (let i = 0; i < steps; i++) {
+                    let nextX = currentX + dx;
+                    let nextY = currentY + dy;
+
+                    // ตรวจสอบตกขอบแมพ
+                    if (nextX < 0 || nextX >= boardSize || nextY < 0 || nextY >= boardSize) {
+                        fellOff = true;
+                        break;
+                    }
+
+                    // ตรวจสอบชนกำแพง (Wall)
+                    const key = `${nextX},${nextY}`;
+                    if (obstacles[key] === 'WALL') {
+                        hitWall = true;
+                        break; 
+                    }
+
+                    currentX = nextX;
+                    currentY = nextY;
+
+                    // ตรวจสอบตกช่องน้ำมัน (Oil) -> ลื่นไถลไปอีก 1 ช่อง
+                    if (obstacles[key] === 'OIL') {
+                        slippedOil = true;
+                        let slideX = currentX + dx;
+                        let slideY = currentY + dy;
+
+                        if (slideX < 0 || slideX >= boardSize || slideY < 0 || slideY >= boardSize) {
+                            fellOff = true;
+                            break;
+                        }
+
+                        const slideKey = `${slideX},${slideY}`;
+                        if (obstacles[slideKey] === 'WALL') {
+                            // ติดกำแพงอยู่ที่ช่องน้ำมัน
+                        } else {
+                            currentX = slideX;
+                            currentY = slideY;
+                        }
+                    }
+                }
+
+                if (fellOff) {
+                    robo.x = center;
+                    robo.y = center;
+                    showPopup('⚠️ หุ่นยนต์ตกขอบแมพ! วาปกลับจุด START');
+                    updateInfo(`ตกขอบแมพ! วาปกลับจุด START (รักษาทิศทางเดิม)`);
+                } else {
+                    robo.x = currentX;
+                    robo.y = currentY;
+
+                    if (hitWall) {
+                        showPopup('🧱 ชนกำแพง! หุ่นยนต์หยุดเดิน', 'wall');
+                        updateInfo(`เดินชนกำแพง! หยุดที่ (${robo.x}, ${robo.y})`);
+                    } else if (slippedOil) {
+                        showPopup('🛢️ เหยียบคราบน้ำมัน! ลื่นไถลไปข้างหน้า', 'oil');
+                        updateInfo(`เหยียบน้ำมันลื่น! ตำแหน่งปัจจุบัน (${robo.x}, ${robo.y})`);
+                    } else {
+                        updateInfo(`เดินหน้าสำเร็จ (${steps} ช่อง)`);
+                    }
+                }
+            }
+
+            createBoard();
+        }
+
+        function resetGame() {
+            robo.x = center;
+            robo.y = center;
+            robo.direction = 'RIGHT';
+            updateInfo('รีเซ็ตตำแหน่งกลับจุดเริ่มต้น');
+            createBoard();
+        }
+
+        initDefaultObstacles();
+        updateInfo('เริ่มต้นเกม');
+        createBoard();
+        </script>
+    </body>
+</html>
