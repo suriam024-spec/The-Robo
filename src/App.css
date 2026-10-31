@@ -582,6 +582,104 @@
   width: 100%;
 }
 
+/* M3.1: แผงทดสอบการเคลื่อนที่ (ชั่วคราว ลบเมื่อทำ M4 เสร็จ) */
+.test-panel {
+  border-color: #5b6a45;
+}
+
+.crash-counter {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #7a4540;
+  border-radius: 10px;
+  background: #2a1b19;
+}
+
+.crash-label {
+  color: #d9a29b;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.crash-counter strong {
+  color: #f0d4d0;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.crash-note {
+  margin-left: auto;
+  color: #8f6f6a;
+  font-size: 10px;
+}
+
+.test-command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.test-command-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #41463e;
+  border-radius: 8px;
+  color: #c2c9b6;
+  background: #252a24;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.test-command-button:hover {
+  border-color: #a8c77a;
+  background: #2d352a;
+}
+
+.test-command-button:active {
+  color: #182014;
+  border-color: #b7d68b;
+  background: #b7d68b;
+}
+
+.test-command-button:focus-visible {
+  outline: 2px solid #b7d68b;
+  outline-offset: 2px;
+}
+
+.test-command-name {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.test-command-desc {
+  color: #858b7e;
+  font-size: 10px;
+}
+
+.test-command-button:active .test-command-desc {
+  color: #3c4a2b;
+}
+
+.test-result {
+  min-height: 2.8em;
+  margin: 12px 0 0;
+  color: #e2e6d9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* Board */
 .board-section {
   --board-fit: 100%;
@@ -671,6 +769,15 @@
   border: 2px solid #d4e7a7;
   background: #829d5b;
   box-shadow: 0 0 18px rgba(183, 214, 139, 0.2);
+}
+
+.cell.has-robo:not(.starting-point) {
+  border-color: #d4e7a7;
+  background: #3a4a35;
+}
+
+.cell.starting-point:not(.has-robo) .start-label {
+  font-size: 16cqw;
 }
 
 .robo-token {
@@ -768,8 +875,9 @@
 /* Footer */
 .game-footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   padding: 18px 4px 0;
   color: #777e70;
   font-size: 10px;
@@ -833,7 +941,9 @@
     grid-area: side;
     position: sticky;
     top: 16px;
+    max-height: calc(100vh - 32px);
     margin-top: 0;
+    overflow-y: auto;
   }
 
   .setup-panel {
@@ -1036,7 +1146,8 @@
   .primary-button,
   .secondary-button,
   .turn-direction-button,
-  .toggle-button {
+  .toggle-button,
+  .test-command-button {
     transition: none;
   }
 }

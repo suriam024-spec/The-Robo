@@ -1,5 +1,11 @@
 import { useState } from 'react'
 import './App.css'
+import {
+  MOVEMENT_COMMANDS,
+  applyMovementCommand,
+  createRobo,
+  getStartPosition,
+} from './game/movement/movement.js'
 
 const BOARD_SIZES = [9, 11, 13]
 const DEFAULT_BOARD_SIZE = 9
@@ -8,6 +14,7 @@ const MIN_PLAYERS = 2
 const MAX_PLAYERS = 6
 const DEFAULT_PLAYER_COUNT = 4
 const MAX_NAME_LENGTH = 16
+const CRASH_LIMIT = 3 // M3: แสดงผลอย่างเดียว ยังไม่มีผลต่อการจบเกม
 
 const DIRECTIONS = [
   { id: 'UP', label: 'ขึ้น', arrow: '↑' },
@@ -92,6 +99,35 @@ function getTurnOrder(firstIndex, playerCount, step) {
   )
 }
 
+function getDirectionInfo(facing) {
+  return DIRECTIONS.find((item) => item.id === facing)
+}
+
+// อธิบายคำสั่งเคลื่อนที่เป็นภาษาไทย เช่น "หันซ้าย + เดิน 1 ช่อง"
+function describeCommand(command) {
+  const turnText = {
+    NONE: '',
+    LEFT: 'หันซ้าย',
+    RIGHT: 'หันขวา',
+    AROUND: 'กลับหลังหัน',
+  }[command.turn]
+  const stepText = command.steps > 0 ? `เดิน ${command.steps} ช่อง` : ''
+  return [turnText, stepText].filter(Boolean).join(' + ')
+}
+
+// สรุปผลการเคลื่อนที่ครั้งล่าสุดเป็นข้อความ
+function describeLastMove(lastMove) {
+  if (!lastMove) return 'ยังไม่ได้สั่งเคลื่อนที่'
+  const facingText = getDirectionInfo(lastMove.facingAfterTurn).label
+  if (lastMove.crashed) {
+    return `${lastMove.label}: เดินได้ ${lastMove.stepsTaken} ช่อง แล้วตกแมพ! Crash +1 · Robo กลับ Starting Point โดยหันไปทาง${facingText}`
+  }
+  if (lastMove.steps === 0) {
+    return `${lastMove.label}: หันไปทาง${facingText}`
+  }
+  return `${lastMove.label}: หันไปทาง${facingText} แล้วเดิน ${lastMove.stepsTaken} ช่อง`
+}
+
 function getCellType(row, col, boardSize) {
   const center = (boardSize - 1) / 2
   if (row === center && col === center) return 'starting-point'
@@ -103,8 +139,8 @@ function getCellType(row, col, boardSize) {
 
 /* ---------- Board (M1 — ไม่เปลี่ยนพฤติกรรม) ---------- */
 
-function BoardSection({ direction, boardSize }) {
-  const selectedDirection = DIRECTIONS.find((item) => item.id === direction)
+function BoardSection({ robo, boardSize }) {
+  const selectedDirection = getDirectionInfo(robo.facing)
   const totalCells = boardSize * boardSize
 
   return (
@@ -130,20 +166,24 @@ function BoardSection({ direction, boardSize }) {
             const row = Math.floor(index / boardSize)
             const col = index % boardSize
             const cellType = getCellType(row, col, boardSize)
-            const isRoboCell = cellType === 'starting-point'
+            const isStartCell = cellType === 'starting-point'
+            const isRoboCell = row === robo.row && col === robo.col
+
+            let cellLabel = `ช่องแถวที่ ${row + 1} คอลัมน์ที่ ${col + 1}`
+            if (isRoboCell) {
+              cellLabel = `Robo อยู่ที่แถวที่ ${row + 1} คอลัมน์ที่ ${col + 1} หันไปทาง${selectedDirection.label}`
+            } else if (isStartCell) {
+              cellLabel = 'จุดเริ่มต้น (Starting Point)'
+            } else if (cellType === 'locked-zone') {
+              cellLabel = 'เขตล็อก'
+            }
 
             return (
               <div
-                className={`cell ${cellType}`}
+                className={`cell ${cellType} ${isRoboCell ? 'has-robo' : ''}`}
                 key={index}
                 role="gridcell"
-                aria-label={
-                  isRoboCell
-                    ? `จุดเริ่มต้น Robo หันไปทาง${selectedDirection.label}`
-                    : cellType === 'locked-zone'
-                      ? 'เขตล็อก'
-                      : `ช่องแถวที่ ${row + 1} คอลัมน์ที่ ${col + 1}`
-                }
+                aria-label={cellLabel}
               >
                 {isRoboCell && (
                   <div className="robo-token" title={`Robo หันไปทาง${selectedDirection.label}`}>
@@ -151,10 +191,10 @@ function BoardSection({ direction, boardSize }) {
                     <span className="robo-label">ROBO</span>
                   </div>
                 )}
-                {cellType === 'locked-zone' && (
+                {cellType === 'locked-zone' && !isRoboCell && (
                   <span className="lock-mark" aria-label="ล็อก">✦</span>
                 )}
-                {isRoboCell && <span className="start-label">START</span>}
+                {isStartCell && <span className="start-label">START</span>}
               </div>
             )
           })}
@@ -230,6 +270,40 @@ function RoboDirectionPanel({ direction, onChange }) {
         ))}
       </div>
     </section>
+  )
+}
+
+/* ---------- M3.1: แผงทดสอบการเคลื่อนที่ (ชั่วคราว ลบเมื่อทำ M4 เสร็จ) ---------- */
+
+function MovementTestPanel({ crashCount, lastMove, onMove }) {
+  return (
+    <div className="private-card test-panel">
+      <div className="private-card-title">
+        แผงทดสอบการเคลื่อนที่ <span>· ชั่วคราว จะถูกแทนด้วยการ์ดใน M4</span>
+      </div>
+
+      <div className="crash-counter" aria-live="polite">
+        <span className="crash-label">CRASH</span>
+        <strong>{crashCount} / {CRASH_LIMIT}</strong>
+        <span className="crash-note">แสดงผลอย่างเดียว</span>
+      </div>
+
+      <div className="test-command-grid">
+        {MOVEMENT_COMMANDS.map((command) => (
+          <button
+            className="test-command-button"
+            key={command.id}
+            type="button"
+            onClick={() => onMove(command.id)}
+          >
+            <span className="test-command-name">{command.label}</span>
+            <span className="test-command-desc">{describeCommand(command)}</span>
+          </button>
+        ))}
+      </div>
+
+      <p className="test-result" aria-live="polite">{describeLastMove(lastMove)}</p>
+    </div>
   )
 }
 
@@ -366,9 +440,12 @@ function TurnPanel({
   turnActive,
   handOpen,
   missionOpen,
+  crashCount,
+  lastMove,
   onStartTurn,
   onToggleHand,
   onToggleMission,
+  onMove,
   onEndTurn,
   onResetGame,
 }) {
@@ -463,6 +540,8 @@ function TurnPanel({
             </div>
           )}
 
+          <MovementTestPanel crashCount={crashCount} lastMove={lastMove} onMove={onMove} />
+
           <button className="primary-button end-turn-button" type="button" onClick={onEndTurn}>
             จบตา · ส่งต่อผู้เล่นถัดไป
           </button>
@@ -494,6 +573,11 @@ function App() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [pendingTurnDirection, setPendingTurnDirection] = useState(null)
   const [turnDirection, setTurnDirection] = useState('RIGHT')
+
+  // Robo (M3.1): ตำแหน่ง ทิศ ตัวนับ Crash และผลการเคลื่อนที่ล่าสุด
+  const [robo, setRobo] = useState(() => createRobo(DEFAULT_BOARD_SIZE, 'RIGHT'))
+  const [crashCount, setCrashCount] = useState(0)
+  const [lastMove, setLastMove] = useState(null)
 
   // Turn / Privacy
   const [turnActive, setTurnActive] = useState(false)
@@ -527,6 +611,30 @@ function App() {
     )
   }
 
+  function resetRobo() {
+    setRobo(createRobo(boardSize, direction))
+    setCrashCount(0)
+    setLastMove(null)
+  }
+
+  function handleMove(commandId) {
+    const command = MOVEMENT_COMMANDS.find((item) => item.id === commandId)
+    if (!command) return
+
+    const result = applyMovementCommand(robo, command, boardSize)
+    setRobo(result.robo)
+    if (result.crashed) {
+      setCrashCount(crashCount + 1)
+    }
+    setLastMove({
+      label: command.label,
+      steps: command.steps,
+      stepsTaken: result.stepsTaken,
+      crashed: result.crashed,
+      facingAfterTurn: result.facingAfterTurn,
+    })
+  }
+
   function handleStartGame() {
     const readyPlayers = setupPlayers.map((player, index) => ({
       id: player.id,
@@ -535,6 +643,7 @@ function App() {
     }))
     const randomFirst = Math.floor(Math.random() * readyPlayers.length)
 
+    resetRobo()
     setPlayers(readyPlayers)
     setFirstPlayerIndex(randomFirst)
     setCurrentIndex(randomFirst)
@@ -578,11 +687,15 @@ function App() {
     setTurnActive(false)
     hidePrivateInfo()
     setPendingTurnDirection(null)
+    resetRobo()
     setPhase('setup')
   }
 
   const isScreenMode = phase === 'direction' || phase === 'handoff'
-  const roboStartPosition = (boardSize + 1) / 2
+  // หน้า Setup แสดงตัวอย่าง Robo ตามขนาดและทิศที่เลือก, ตอนเล่นใช้ตำแหน่งจริงจาก State
+  const displayRobo = phase === 'setup' ? createRobo(boardSize, direction) : robo
+  const startPosition = getStartPosition(boardSize)
+  const displayFacing = getDirectionInfo(displayRobo.facing)
 
   return (
     <main className={`game-shell ${isScreenMode ? 'screen-mode' : ''}`}>
@@ -594,7 +707,7 @@ function App() {
 
       {phase === 'setup' && (
         <>
-          <BoardSection direction={direction} boardSize={boardSize} />
+          <BoardSection robo={displayRobo} boardSize={boardSize} />
           <div className="side-stack">
             <PlayerSetupPanel
               players={setupPlayers}
@@ -623,7 +736,7 @@ function App() {
 
       {phase === 'board' && (
         <>
-          <BoardSection direction={direction} boardSize={boardSize} />
+          <BoardSection robo={displayRobo} boardSize={boardSize} />
           <div className="side-stack">
             <TurnPanel
               players={players}
@@ -633,9 +746,12 @@ function App() {
               turnActive={turnActive}
               handOpen={handOpen}
               missionOpen={missionOpen}
+              crashCount={crashCount}
+              lastMove={lastMove}
               onStartTurn={handleStartTurn}
               onToggleHand={() => setHandOpen(!handOpen)}
               onToggleMission={() => setMissionOpen(!missionOpen)}
+              onMove={handleMove}
               onEndTurn={handleEndTurn}
               onResetGame={handleResetGame}
             />
@@ -654,9 +770,15 @@ function App() {
         <footer className="game-footer">
           <span>
             ROBO POSITION{' '}
-            <strong>CENTER · ({roboStartPosition}, {roboStartPosition})</strong>
+            <strong>
+              แถว {displayRobo.row + 1} · คอลัมน์ {displayRobo.col + 1}
+              {displayRobo.row === startPosition.row && displayRobo.col === startPosition.col
+                ? ' (START)'
+                : ''}
+            </strong>
           </span>
-          <span>FACING <strong>{direction}</strong></span>
+          <span>FACING <strong>{displayRobo.facing} {displayFacing.arrow}</strong></span>
+          <span>CRASH <strong>{crashCount} / {CRASH_LIMIT}</strong></span>
         </footer>
       )}
     </main>
