@@ -146,6 +146,9 @@ function describeLastMove(lastMove) {
   if (lastMove.crashed) {
     return `${lastMove.label}: เดินได้ ${lastMove.stepsTaken} ช่อง แล้วตกแมพ! Crash +1 · Robo กลับ Starting Point โดยหันไปทาง${facingText}`
   }
+  if (lastMove.blocked) {
+    return `${lastMove.label}: ชน Wall · เดินได้ ${lastMove.stepsTaken} ช่อง แล้วหยุด · หันไปทาง${facingText}`
+  }
   if (lastMove.steps === 0) {
     return `${lastMove.label}: หันไปทาง${facingText}`
   }
@@ -843,7 +846,7 @@ function App() {
     const command = MOVEMENT_COMMANDS.find((item) => item.id === commandId)
     if (!command) return
 
-    const result = applyMovementCommand(robo, command, boardSize)
+    const result = applyMovementCommand(robo, command, boardSize, placedObstacles)
     setRobo(result.robo)
     if (result.crashed) {
       setCrashCount(crashCount + 1)
@@ -853,6 +856,7 @@ function App() {
       steps: command.steps,
       stepsTaken: result.stepsTaken,
       crashed: result.crashed,
+      blocked: result.blocked,
       facingAfterTurn: result.facingAfterTurn,
     })
   }
