@@ -1,4 +1,5 @@
 // M3.2 — ตรรกะการแจกและวาง Obstacle ตอน Setup (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
+// M3.3 — เพิ่มระบบชำรุด (Damaged) พื้นฐาน และตัวช่วยของ The Hole
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 เหมือน movement.js
 // ใน 3.2 Obstacle มีแค่ "ตำแหน่ง" ยังไม่มีผลต่อ Robo (ผลของแต่ละชนิดทำใน 3.3)
@@ -28,8 +29,26 @@ const BASE_OBSTACLES_PER_PLAYER = { 2: 3, 3: 2, 4: 2, 5: 1, 6: 1 };
 // โบนัสตามขนาดกระดาน (OWNER อนุมัติ): 9x9 = +0, 11x11 = +1, 13x13 = +2 ต่อคน
 const BOARD_SIZE_BONUS = { 9: 0, 11: 1, 13: 2 };
 
+// ระยะเวลาชำรุดของ Obstacle แต่ละชนิด หน่วย "Turn" = รอบเกมครบทุกคน 1 รอบ (OWNER ตัดสิน)
+// ใส่เฉพาะชนิดที่ทำใน 3.3 ตาม GDD v0.2 หัวข้อ 17 ชนิดอื่นจะเพิ่มตอนทำของมัน (ค่าเริ่มต้น 0)
+// - Wall: ไม่มีระบบชำรุด
+// - Hole: GDD v0.2 ไม่มีชำรุด แต่ OWNER อนุมัติให้ Hole ปลายทางชำรุด 1 Turn (บันทึกใน GDD v0.3)
+const DAMAGE_DURATIONS = {
+  oil: 1,
+  scrap: 1,
+  hole: 1,
+  magnet: 1,
+  destroyer: 3,
+  spring: 2,
+};
+
 export function getObstacleType(typeId) {
   return OBSTACLE_TYPES.find((type) => type.id === typeId) ?? null;
+}
+
+// จำนวน Turn ที่ชนิดนี้ต้องชำรุดเมื่อถูกทำให้ชำรุด (0 = ไม่มีระบบชำรุดหรือยังไม่กำหนด)
+export function getDamageDuration(typeId) {
+  return DAMAGE_DURATIONS[typeId] ?? 0;
 }
 
 // จำนวน Obstacle ที่ผู้เล่นแต่ละคนได้รับ
@@ -141,7 +160,50 @@ export function placeObstacle(
     ok: true,
     placed: [
       ...placed,
-      { uid: obstacle.uid, typeId: obstacle.typeId, row, col, ownerIndex },
+      {
+        uid: obstacle.uid,
+        typeId: obstacle.typeId,
+        row,
+        col,
+        ownerIndex,
+        damagedTurns: 0,
+      },
     ],
   };
+}
+
+/* ---------- M3.3: ระบบชำรุด (Damaged) ---------- */
+
+// Obstacle ใบนี้กำลังชำรุดอยู่หรือไม่ (damagedTurns = จำนวน Turn ที่เหลือ)
+export function isDamaged(obstacle) {
+  return (obstacle?.damagedTurns ?? 0) > 0;
+}
+
+// ทำให้ Obstacle ที่มี uid นี้ชำรุด turns Turn คืนอาร์เรย์ใหม่ (ไม่แก้ค่าเดิม)
+// ถ้าชำรุดอยู่แล้ว จะใช้ค่าที่เหลือมากกว่า (ไม่ลดระยะที่เหลือ)
+export function damageObstacle(placed, uid, turns) {
+  const duration = Math.max(0, Math.floor(turns));
+  return placed.map((item) =>
+    item.uid === uid
+      ? { ...item, damagedTurns: Math.max(item.damagedTurns ?? 0, duration) }
+      : item,
+  );
+}
+
+// เรียกเมื่อจบรอบเกม 1 รอบ: ลดตัวนับของทุกใบที่ชำรุดลง 1 ใบที่ครบแล้วกลับสู่สภาพปกติ
+export function tickDamage(placed) {
+  return placed.map((item) =>
+    isDamaged(item) ? { ...item, damagedTurns: item.damagedTurns - 1 } : item,
+  );
+}
+
+/* ---------- M3.3: ตัวช่วยของ The Hole ---------- */
+
+// The Hole ปลายทางที่วาร์ปไปได้เมื่อก้าวเข้า Hole ที่มี uid = entryUid
+// ต้องเป็น Hole ด้วยกัน, ไม่ใช่ตัวที่ก้าวเข้า และต้องไม่ชำรุด เรียงตามลำดับที่วางบนกระดาน
+export function getHoleDestinations(placed, entryUid) {
+  return placed.filter(
+    (item) =>
+      item.typeId === "hole" && item.uid !== entryUid && !isDamaged(item),
+  );
 }

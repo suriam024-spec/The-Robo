@@ -3,14 +3,19 @@ import './App.css'
 import {
   MOVEMENT_COMMANDS,
   applyMovementCommand,
+  completeHoleWarp,
   createRobo,
   getStartPosition,
 } from './game/movement/movement.js'
 import {
   canPlaceObstacle,
+  damageObstacle,
   dealObstacles,
+  getDamageDuration,
   getObstacleType,
+  isDamaged,
   placeObstacle,
+  tickDamage,
 } from './game/obstacles/obstacles.js'
 
 const BOARD_SIZES = [9, 11, 13]
@@ -139,6 +144,11 @@ function describeCommand(command) {
   return [turnText, stepText].filter(Boolean).join(' + ')
 }
 
+// พิกัดแบบอ่านง่าย (นับจาก 1) เช่น "แถว 5 · คอลัมน์ 7"
+function describeCell(row, col) {
+  return `แถว ${row + 1} · คอลัมน์ ${col + 1}`
+}
+
 // สรุปผลการเคลื่อนที่ครั้งล่าสุดเป็นข้อความ
 function describeLastMove(lastMove) {
   if (!lastMove) return 'ยังไม่ได้สั่งเคลื่อนที่'
@@ -148,6 +158,15 @@ function describeLastMove(lastMove) {
   }
   if (lastMove.blocked) {
     return `${lastMove.label}: ชน Wall · เดินได้ ${lastMove.stepsTaken} ช่อง แล้วหยุด · หันไปทาง${facingText}`
+  }
+  if (lastMove.returnedToStart) {
+    return `${lastMove.label}: ก้าวเข้า Hole แต่ไม่มีปลายทางที่ใช้ได้ · Robo กลับ Starting Point (ไม่นับ Crash) โดยหันไปทาง${facingText}`
+  }
+  if (lastMove.pendingWarp) {
+    return `${lastMove.label}: ก้าวเข้า Hole · หยุดเดิน · เลือกปลายทางการวาร์ปด้านบน`
+  }
+  if (lastMove.warp) {
+    return `${lastMove.label}: ก้าวเข้า Hole แล้ววาร์ปจาก ${describeCell(lastMove.warp.fromRow, lastMove.warp.fromCol)} ไป ${describeCell(lastMove.warp.toRow, lastMove.warp.toCol)} · หยุดเดิน · Hole ปลายทางชำรุด · หันไปทาง${facingText}`
   }
   if (lastMove.steps === 0) {
     return `${lastMove.label}: หันไปทาง${facingText}`
@@ -167,12 +186,15 @@ function getCellType(row, col, boardSize) {
 /* ---------- Board (M1 — ไม่เปลี่ยนพฤติกรรม) ---------- */
 
 // ป้าย Obstacle บนกระดาน (M3.2: แสดงผลอย่างเดียว ยังไม่มีผลต่อ Robo)
-function ObstacleToken({ typeId, preview = false }) {
+function ObstacleToken({ typeId, preview = false, damaged = false }) {
   const type = getObstacleType(typeId)
   if (!type) return null
 
   return (
-    <span className={`obstacle-token ${preview ? 'preview' : ''}`} title={type.label}>
+    <span
+      className={`obstacle-token ${preview ? 'preview' : ''} ${damaged ? 'damaged' : ''}`}
+      title={damaged ? `${type.label} (ชำรุด)` : type.label}
+    >
       <span className="obstacle-short">{type.short}</span>
       <span className="obstacle-mark" aria-hidden="true">{OBSTACLE_MARKS[typeId]}</span>
     </span>
@@ -185,6 +207,7 @@ function BoardSection({
   obstacles = [],
   pendingCell = null,
   pendingTypeId = null,
+  warpOptions = [],
   onCellClick = null,
 }) {
   const selectedDirection = getDirectionInfo(robo.facing)
@@ -221,6 +244,8 @@ function BoardSection({
             const obstacle = obstacleByCell.get(`${row},${col}`)
             const obstacleType = obstacle ? getObstacleType(obstacle.typeId) : null
             const isPending = pendingCell?.row === row && pendingCell?.col === col
+            const isWarpOption = warpOptions.some((item) => item.row === row && item.col === col)
+            const isObstacleDamaged = obstacle ? isDamaged(obstacle) : false
 
             let cellLabel = `ช่องแถวที่ ${row + 1} คอลัมน์ที่ ${col + 1}`
             if (isRoboCell) {
@@ -231,7 +256,10 @@ function BoardSection({
               cellLabel = 'เขตล็อก'
             }
             if (obstacleType) {
-              cellLabel = `${cellLabel} มี ${obstacleType.label}`
+              cellLabel = `${cellLabel} มี ${obstacleType.label}${isObstacleDamaged ? ' (ชำรุด)' : ''}`
+            }
+            if (isWarpOption) {
+              cellLabel = `${cellLabel} (ปลายทางที่เลือกวาร์ปได้)`
             }
             if (isPending) {
               cellLabel = `${cellLabel} (ช่องที่เลือกวาง)`
@@ -257,6 +285,7 @@ function BoardSection({
               obstacle ? 'has-obstacle' : '',
               onCellClick ? 'placeable' : '',
               isPending ? 'pending' : '',
+              isWarpOption ? 'warp-option' : '',
             ]
               .filter(Boolean)
               .join(' ')
@@ -279,7 +308,9 @@ function BoardSection({
                   <span className="lock-mark" aria-label="ล็อก">✦</span>
                 )}
                 {isStartCell && <span className="start-label">START</span>}
-                {obstacle && <ObstacleToken typeId={obstacle.typeId} />}
+                {obstacle && (
+                  <ObstacleToken typeId={obstacle.typeId} damaged={isObstacleDamaged} />
+                )}
                 {isPending && !obstacle && pendingTypeId && (
                   <ObstacleToken typeId={pendingTypeId} preview />
                 )}
@@ -305,6 +336,10 @@ function BoardSection({
         <div className="legend-item">
           <span className="legend-swatch obstacle-swatch">Ob</span>
           <span>Obstacle (ตัวย่อชื่อชนิด)</span>
+        </div>
+        <div className="legend-item">
+          <span className="legend-swatch damaged-swatch">Ob</span>
+          <span>Obstacle ชำรุด (ไม่ทำงานชั่วคราว)</span>
         </div>
       </div>
     </section>
@@ -367,7 +402,9 @@ function RoboDirectionPanel({ direction, onChange }) {
 
 /* ---------- M3.1: แผงทดสอบการเคลื่อนที่ (ชั่วคราว ลบเมื่อทำ M4 เสร็จ) ---------- */
 
-function MovementTestPanel({ crashCount, lastMove, onMove }) {
+function MovementTestPanel({ crashCount, lastMove, pendingWarp, onMove, onChooseWarp }) {
+  const isChoosingWarp = Boolean(pendingWarp)
+
   return (
     <div className="private-card test-panel">
       <div className="private-card-title">
@@ -380,12 +417,34 @@ function MovementTestPanel({ crashCount, lastMove, onMove }) {
         <span className="crash-note">แสดงผลอย่างเดียว</span>
       </div>
 
+      {isChoosingWarp && (
+        <div className="warp-chooser" role="group" aria-label="เลือกปลายทางของ The Hole">
+          <p className="warp-note">
+            Robo ก้าวเข้า The Hole ที่ {describeCell(pendingWarp.row, pendingWarp.col)}
+            เลือกปลายทางที่จะวาร์ปไป (ช่องที่เลือกได้ถูกไฮไลต์บนกระดาน)
+          </p>
+          <div className="warp-choice-list">
+            {pendingWarp.destinations.map((item) => (
+              <button
+                className="warp-choice-button"
+                key={item.uid}
+                type="button"
+                onClick={() => onChooseWarp(item.uid)}
+              >
+                Hole ที่ {describeCell(item.row, item.col)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="test-command-grid">
         {MOVEMENT_COMMANDS.map((command) => (
           <button
             className="test-command-button"
             key={command.id}
             type="button"
+            disabled={isChoosingWarp}
             onClick={() => onMove(command.id)}
           >
             <span className="test-command-name">{command.label}</span>
@@ -534,10 +593,12 @@ function TurnPanel({
   missionOpen,
   crashCount,
   lastMove,
+  pendingWarp,
   onStartTurn,
   onToggleHand,
   onToggleMission,
   onMove,
+  onChooseWarp,
   onEndTurn,
   onResetGame,
 }) {
@@ -632,10 +693,21 @@ function TurnPanel({
             </div>
           )}
 
-          <MovementTestPanel crashCount={crashCount} lastMove={lastMove} onMove={onMove} />
+          <MovementTestPanel
+            crashCount={crashCount}
+            lastMove={lastMove}
+            pendingWarp={pendingWarp}
+            onMove={onMove}
+            onChooseWarp={onChooseWarp}
+          />
 
-          <button className="primary-button end-turn-button" type="button" onClick={onEndTurn}>
-            จบตา · ส่งต่อผู้เล่นถัดไป
+          <button
+            className="primary-button end-turn-button"
+            type="button"
+            disabled={Boolean(pendingWarp)}
+            onClick={onEndTurn}
+          >
+            {pendingWarp ? 'เลือกปลายทาง Hole ก่อนจบตา' : 'จบตา · ส่งต่อผู้เล่นถัดไป'}
           </button>
         </div>
       )}
@@ -786,6 +858,7 @@ function App() {
   const [robo, setRobo] = useState(() => createRobo(DEFAULT_BOARD_SIZE, 'RIGHT'))
   const [crashCount, setCrashCount] = useState(0)
   const [lastMove, setLastMove] = useState(null)
+  const [pendingWarp, setPendingWarp] = useState(null) // รอผู้เล่นเลือกปลายทางของ The Hole (M3.3)
 
   // Obstacle Setup (M3.2)
   const [obstacleHands, setObstacleHands] = useState([]) // มือที่เหลือของผู้เล่นแต่ละคน
@@ -840,25 +913,52 @@ function App() {
     setRobo(createRobo(boardSize, direction))
     setCrashCount(0)
     setLastMove(null)
+    setPendingWarp(null)
+  }
+
+  // ทำให้ Obstacle uid นี้ชำรุดตามระยะของชนิดมัน (ถ้าชนิดนั้นไม่มีระบบชำรุด จะไม่เปลี่ยนอะไร)
+  function damagePlacedObstacle(obstacles, uid) {
+    const target = obstacles.find((item) => item.uid === uid)
+    if (!target) return obstacles
+    return damageObstacle(obstacles, uid, getDamageDuration(target.typeId))
   }
 
   function handleMove(commandId) {
     const command = MOVEMENT_COMMANDS.find((item) => item.id === commandId)
     if (!command) return
 
+    if (pendingWarp) return // ต้องเลือกปลายทางของ Hole ให้เสร็จก่อน
+
     const result = applyMovementCommand(robo, command, boardSize, placedObstacles)
     setRobo(result.robo)
     if (result.crashed) {
       setCrashCount(crashCount + 1)
     }
+    if (result.damageUid) {
+      setPlacedObstacles(damagePlacedObstacle(placedObstacles, result.damageUid))
+    }
+    setPendingWarp(result.pendingWarp)
     setLastMove({
       label: command.label,
       steps: command.steps,
       stepsTaken: result.stepsTaken,
       crashed: result.crashed,
       blocked: result.blocked,
+      returnedToStart: result.returnedToStart,
+      warp: result.warp,
+      pendingWarp: Boolean(result.pendingWarp),
       facingAfterTurn: result.facingAfterTurn,
     })
+  }
+
+  function handleChooseWarp(destinationUid) {
+    if (!pendingWarp) return
+
+    const done = completeHoleWarp(robo, pendingWarp, destinationUid)
+    setRobo(done.robo)
+    setPlacedObstacles(damagePlacedObstacle(placedObstacles, done.damageUid))
+    setPendingWarp(null)
+    setLastMove({ ...lastMove, pendingWarp: false, warp: done.warp })
   }
 
   function resetObstacles() {
@@ -985,10 +1085,20 @@ function App() {
   }
 
   function handleEndTurn() {
+    if (pendingWarp) return // ต้องเลือกปลายทางของ Hole ก่อนจบตา
+
     const step = turnDirectionInfo.step
+    const nextIndex = getNextIndex(currentIndex, players.length, step)
+
+    // ตัวแทนชั่วคราวของ "จบรอบเกม" (M3): ผู้เล่นคนสุดท้ายของรอบกดจบตา → ลดตัวนับชำรุดลง 1
+    // จะย้ายไปผูกกับระบบรอบจริงใน M5
+    if (nextIndex === firstPlayerIndex) {
+      setPlacedObstacles(tickDamage(placedObstacles))
+    }
+
     setTurnActive(false)
     hidePrivateInfo()
-    setCurrentIndex(getNextIndex(currentIndex, players.length, step))
+    setCurrentIndex(nextIndex)
     setPhase('handoff')
   }
 
@@ -1087,7 +1197,12 @@ function App() {
 
       {phase === 'board' && (
         <>
-          <BoardSection robo={displayRobo} boardSize={boardSize} obstacles={placedObstacles} />
+          <BoardSection
+            robo={displayRobo}
+            boardSize={boardSize}
+            obstacles={placedObstacles}
+            warpOptions={pendingWarp ? pendingWarp.destinations : []}
+          />
           <div className="side-stack">
             <TurnPanel
               players={players}
@@ -1099,10 +1214,12 @@ function App() {
               missionOpen={missionOpen}
               crashCount={crashCount}
               lastMove={lastMove}
+              pendingWarp={pendingWarp}
               onStartTurn={handleStartTurn}
               onToggleHand={() => setHandOpen(!handOpen)}
               onToggleMission={() => setMissionOpen(!missionOpen)}
               onMove={handleMove}
+              onChooseWarp={handleChooseWarp}
               onEndTurn={handleEndTurn}
               onResetGame={handleResetGame}
             />
