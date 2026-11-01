@@ -6,6 +6,12 @@ import {
   createRobo,
   getStartPosition,
 } from './game/movement/movement.js'
+import {
+  canPlaceObstacle,
+  dealObstacles,
+  getObstacleType,
+  placeObstacle,
+} from './game/obstacles/obstacles.js'
 
 const BOARD_SIZES = [9, 11, 13]
 const DEFAULT_BOARD_SIZE = 9
@@ -15,6 +21,24 @@ const MAX_PLAYERS = 6
 const DEFAULT_PLAYER_COUNT = 4
 const MAX_NAME_LENGTH = 16
 const CRASH_LIMIT = 3 // M3: แสดงผลอย่างเดียว ยังไม่มีผลต่อการจบเกม
+
+// ตัวย่อสั้นมาก ใช้แทนชื่อบนกระดานเมื่อช่องเล็กจนอ่านชื่อเต็มไม่ได้ (เช่น 13x13 บนมือถือ)
+const OBSTACLE_MARKS = {
+  wall: 'W',
+  oil: 'O',
+  scrap: 'Sc',
+  hole: 'H',
+  magnet: 'M',
+  destroyer: 'D',
+  spring: 'Sp',
+  booster: 'B',
+  'booster-plus': 'B+',
+  shuffler: 'Sh',
+  reset: 'R',
+  'blue-screen': 'Bs',
+  protect: 'P',
+  support: 'Su',
+}
 
 const DIRECTIONS = [
   { id: 'UP', label: 'ขึ้น', arrow: '↑' },
@@ -139,9 +163,32 @@ function getCellType(row, col, boardSize) {
 
 /* ---------- Board (M1 — ไม่เปลี่ยนพฤติกรรม) ---------- */
 
-function BoardSection({ robo, boardSize }) {
+// ป้าย Obstacle บนกระดาน (M3.2: แสดงผลอย่างเดียว ยังไม่มีผลต่อ Robo)
+function ObstacleToken({ typeId, preview = false }) {
+  const type = getObstacleType(typeId)
+  if (!type) return null
+
+  return (
+    <span className={`obstacle-token ${preview ? 'preview' : ''}`} title={type.label}>
+      <span className="obstacle-short">{type.short}</span>
+      <span className="obstacle-mark" aria-hidden="true">{OBSTACLE_MARKS[typeId]}</span>
+    </span>
+  )
+}
+
+function BoardSection({
+  robo,
+  boardSize,
+  obstacles = [],
+  pendingCell = null,
+  pendingTypeId = null,
+  onCellClick = null,
+}) {
   const selectedDirection = getDirectionInfo(robo.facing)
   const totalCells = boardSize * boardSize
+  const obstacleByCell = new Map(
+    obstacles.map((item) => [`${item.row},${item.col}`, item]),
+  )
 
   return (
     <section className="board-section" aria-labelledby="board-title">
@@ -168,6 +215,9 @@ function BoardSection({ robo, boardSize }) {
             const cellType = getCellType(row, col, boardSize)
             const isStartCell = cellType === 'starting-point'
             const isRoboCell = row === robo.row && col === robo.col
+            const obstacle = obstacleByCell.get(`${row},${col}`)
+            const obstacleType = obstacle ? getObstacleType(obstacle.typeId) : null
+            const isPending = pendingCell?.row === row && pendingCell?.col === col
 
             let cellLabel = `ช่องแถวที่ ${row + 1} คอลัมน์ที่ ${col + 1}`
             if (isRoboCell) {
@@ -177,13 +227,44 @@ function BoardSection({ robo, boardSize }) {
             } else if (cellType === 'locked-zone') {
               cellLabel = 'เขตล็อก'
             }
+            if (obstacleType) {
+              cellLabel = `${cellLabel} มี ${obstacleType.label}`
+            }
+            if (isPending) {
+              cellLabel = `${cellLabel} (ช่องที่เลือกวาง)`
+            }
+
+            const interactiveProps = onCellClick
+              ? {
+                  tabIndex: 0,
+                  onClick: () => onCellClick(row, col),
+                  onKeyDown: (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onCellClick(row, col)
+                    }
+                  },
+                }
+              : {}
+
+            const cellClasses = [
+              'cell',
+              cellType,
+              isRoboCell ? 'has-robo' : '',
+              obstacle ? 'has-obstacle' : '',
+              onCellClick ? 'placeable' : '',
+              isPending ? 'pending' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')
 
             return (
               <div
-                className={`cell ${cellType} ${isRoboCell ? 'has-robo' : ''}`}
+                className={cellClasses}
                 key={index}
                 role="gridcell"
                 aria-label={cellLabel}
+                {...interactiveProps}
               >
                 {isRoboCell && (
                   <div className="robo-token" title={`Robo หันไปทาง${selectedDirection.label}`}>
@@ -195,6 +276,10 @@ function BoardSection({ robo, boardSize }) {
                   <span className="lock-mark" aria-label="ล็อก">✦</span>
                 )}
                 {isStartCell && <span className="start-label">START</span>}
+                {obstacle && <ObstacleToken typeId={obstacle.typeId} />}
+                {isPending && !obstacle && pendingTypeId && (
+                  <ObstacleToken typeId={pendingTypeId} preview />
+                )}
               </div>
             )
           })}
@@ -213,6 +298,10 @@ function BoardSection({ robo, boardSize }) {
         <div className="legend-item">
           <span className="legend-swatch normal-swatch" />
           <span>พื้นที่สนาม</span>
+        </div>
+        <div className="legend-item">
+          <span className="legend-swatch obstacle-swatch">Ob</span>
+          <span>Obstacle (ตัวย่อชื่อชนิด)</span>
         </div>
       </div>
     </section>
@@ -401,7 +490,7 @@ function TurnDirectionScreen({ firstPlayerName, selected, onSelect, onConfirm, o
           disabled={!selected}
           onClick={onConfirm}
         >
-          ยืนยันและเข้าสู่กระดาน
+          ยืนยันและไปวาง Obstacle
         </button>
       </div>
     </section>
@@ -555,10 +644,126 @@ function TurnPanel({
   )
 }
 
+/* ---------- M3.2: Handoff ก่อนวาง Obstacle ---------- */
+
+function ObstacleHandoffScreen({ playerName, obstacleCount, step, total, onStart }) {
+  return (
+    <section className="screen-card handoff" aria-labelledby="obstacle-handoff-title">
+      <span className="step-label">OBSTACLE SETUP · {step}/{total}</span>
+      <h2 id="obstacle-handoff-title">
+        ส่งอุปกรณ์ให้ <span className="highlight-name">{playerName}</span>
+      </h2>
+      <p className="screen-text">
+        {playerName} จะได้วาง Obstacle {obstacleCount} ใบลงบนกระดาน
+        Obstacle ในมือถูกซ่อนไว้จนกว่าจะกดปุ่มด้านล่าง
+      </p>
+      <div className="screen-actions">
+        <button className="primary-button" type="button" onClick={onStart}>
+          ฉันคือ {playerName} · เริ่มวาง Obstacle
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/* ---------- M3.2: แผงวาง Obstacle (หน้า Board) ---------- */
+
+function ObstaclePlacementPanel({
+  playerName,
+  step,
+  total,
+  hand,
+  selectedUid,
+  pendingCell,
+  message,
+  onSelect,
+  onConfirm,
+  onFinish,
+  onResetGame,
+}) {
+  const selectedObstacle = hand.find((item) => item.uid === selectedUid) ?? null
+  const selectedType = selectedObstacle ? getObstacleType(selectedObstacle.typeId) : null
+  const isLastPlayer = step >= total
+
+  return (
+    <section className="turn-panel" aria-labelledby="obstacle-title">
+      <div className="turn-heading">
+        <span className="step-label">OBSTACLE SETUP · {step}/{total}</span>
+        <h2 id="obstacle-title">
+          <span className="highlight-name">{playerName}</span> วาง Obstacle
+        </h2>
+      </div>
+
+      <p className="screen-text">
+        {hand.length > 0
+          ? `เลือก Obstacle แล้วแตะช่องบนกระดาน จากนั้นกดยืนยัน (เหลือ ${hand.length} ใบ)`
+          : 'วาง Obstacle ครบทุกใบแล้ว'}
+      </p>
+
+      {hand.length > 0 && (
+        <div className="private-card">
+          <div className="private-card-title">
+            OBSTACLE ในมือ <span>· เห็นได้เฉพาะ {playerName}</span>
+          </div>
+
+          <ul className="card-row" aria-label="Obstacle ในมือ">
+            {hand.map((item) => {
+              const type = getObstacleType(item.typeId)
+              return (
+                <li key={item.uid}>
+                  <button
+                    className={`obstacle-choice ${item.uid === selectedUid ? 'selected' : ''}`}
+                    type="button"
+                    aria-pressed={item.uid === selectedUid}
+                    onClick={() => onSelect(item.uid)}
+                  >
+                    {type.label}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+
+          <p className="placement-status">
+            {pendingCell
+              ? `ช่องที่เลือก: แถว ${pendingCell.row + 1} · คอลัมน์ ${pendingCell.col + 1}`
+              : 'ยังไม่ได้เลือกช่องบนกระดาน'}
+          </p>
+
+          {message && (
+            <p className="placement-message" role="alert">
+              {message}
+            </p>
+          )}
+
+          <button
+            className="primary-button confirm-place-button"
+            type="button"
+            disabled={!selectedObstacle || !pendingCell}
+            onClick={onConfirm}
+          >
+            {selectedType ? `ยืนยันวาง ${selectedType.label}` : 'ยืนยันวาง'}
+          </button>
+        </div>
+      )}
+
+      {hand.length === 0 && (
+        <button className="primary-button" type="button" onClick={onFinish}>
+          {isLastPlayer ? 'เสร็จสิ้น · เริ่มเกม' : 'เสร็จสิ้น · ส่งต่อผู้เล่นถัดไป'}
+        </button>
+      )}
+
+      <button className="text-button" type="button" onClick={onResetGame}>
+        รีเซ็ตเกม (กลับไปตั้งค่าผู้เล่น)
+      </button>
+    </section>
+  )
+}
+
 /* ---------- App ---------- */
 
 function App() {
-  // phase: 'setup' | 'direction' | 'board' | 'handoff'
+  // phase: 'setup' | 'direction' | 'obstacle-handoff' | 'obstacle' | 'board' | 'handoff'
   const [phase, setPhase] = useState('setup')
 
   // Setup
@@ -579,12 +784,29 @@ function App() {
   const [crashCount, setCrashCount] = useState(0)
   const [lastMove, setLastMove] = useState(null)
 
+  // Obstacle Setup (M3.2)
+  const [obstacleHands, setObstacleHands] = useState([]) // มือที่เหลือของผู้เล่นแต่ละคน
+  const [placedObstacles, setPlacedObstacles] = useState([])
+  const [obstacleTurn, setObstacleTurn] = useState(0) // ลำดับที่ในรอบวาง (0 = คนแรก)
+  const [selectedObstacleUid, setSelectedObstacleUid] = useState(null)
+  const [pendingCell, setPendingCell] = useState(null)
+  const [placementMessage, setPlacementMessage] = useState('')
+
   // Turn / Privacy
   const [turnActive, setTurnActive] = useState(false)
   const [handOpen, setHandOpen] = useState(false)
   const [missionOpen, setMissionOpen] = useState(false)
 
   const turnDirectionInfo = TURN_DIRECTIONS.find((item) => item.id === turnDirection)
+
+  // ผู้เล่นที่กำลังวาง Obstacle (เรียงตามลำดับตาเริ่มจากผู้เล่นคนแรก)
+  const inObstaclePhase = phase === 'obstacle' || phase === 'obstacle-handoff'
+  const obstaclePlayerIndex = inObstaclePhase
+    ? getTurnOrder(firstPlayerIndex, players.length, turnDirectionInfo.step)[obstacleTurn]
+    : null
+  const currentObstacleHand = inObstaclePhase ? (obstacleHands[obstaclePlayerIndex] ?? []) : []
+  const selectedObstacle =
+    currentObstacleHand.find((item) => item.uid === selectedObstacleUid) ?? null
 
   function hidePrivateInfo() {
     setHandOpen(false)
@@ -635,6 +857,82 @@ function App() {
     })
   }
 
+  function resetObstacles() {
+    setObstacleHands([])
+    setPlacedObstacles([])
+    setObstacleTurn(0)
+    setSelectedObstacleUid(null)
+    setPendingCell(null)
+    setPlacementMessage('')
+  }
+
+  function handleStartObstacleTurn() {
+    setSelectedObstacleUid(currentObstacleHand.length > 0 ? currentObstacleHand[0].uid : null)
+    setPendingCell(null)
+    setPlacementMessage('')
+    setPhase('obstacle')
+  }
+
+  function handleObstacleCellClick(row, col) {
+    if (currentObstacleHand.length === 0) return
+
+    const check = canPlaceObstacle(row, col, boardSize, placedObstacles)
+    if (!check.ok) {
+      setPendingCell(null)
+      setPlacementMessage(check.message)
+      return
+    }
+    setPendingCell({ row, col })
+    setPlacementMessage('')
+  }
+
+  function handleConfirmPlaceObstacle() {
+    if (!selectedObstacle || !pendingCell) return
+
+    const result = placeObstacle(
+      placedObstacles,
+      selectedObstacle,
+      pendingCell.row,
+      pendingCell.col,
+      boardSize,
+      obstaclePlayerIndex,
+    )
+    if (!result.ok) {
+      setPendingCell(null)
+      setPlacementMessage(result.message)
+      return
+    }
+
+    const remaining = currentObstacleHand.filter((item) => item.uid !== selectedObstacle.uid)
+    setPlacedObstacles(result.placed)
+    setObstacleHands(
+      obstacleHands.map((hand, index) => (index === obstaclePlayerIndex ? remaining : hand)),
+    )
+    setSelectedObstacleUid(remaining.length > 0 ? remaining[0].uid : null)
+    setPendingCell(null)
+    setPlacementMessage('')
+  }
+
+  function handleFinishObstacleTurn() {
+    if (currentObstacleHand.length > 0) return
+
+    setSelectedObstacleUid(null)
+    setPendingCell(null)
+    setPlacementMessage('')
+
+    if (obstacleTurn + 1 < players.length) {
+      setObstacleTurn(obstacleTurn + 1)
+      setPhase('obstacle-handoff')
+      return
+    }
+
+    // ทุกคนวางครบแล้ว → เริ่มเกมที่ผู้เล่นคนแรก
+    setCurrentIndex(firstPlayerIndex)
+    setTurnActive(false)
+    hidePrivateInfo()
+    setPhase('board')
+  }
+
   function handleStartGame() {
     const readyPlayers = setupPlayers.map((player, index) => ({
       id: player.id,
@@ -644,6 +942,7 @@ function App() {
     const randomFirst = Math.floor(Math.random() * readyPlayers.length)
 
     resetRobo()
+    resetObstacles()
     setPlayers(readyPlayers)
     setFirstPlayerIndex(randomFirst)
     setCurrentIndex(randomFirst)
@@ -664,7 +963,15 @@ function App() {
     setCurrentIndex(firstPlayerIndex)
     setTurnActive(false)
     hidePrivateInfo()
-    setPhase('board')
+
+    // M3.2: แจก Obstacle ให้ทุกคน แล้วเริ่มรอบวาง Obstacle จากผู้เล่นคนแรก
+    setObstacleHands(dealObstacles(players.length, boardSize))
+    setPlacedObstacles([])
+    setObstacleTurn(0)
+    setSelectedObstacleUid(null)
+    setPendingCell(null)
+    setPlacementMessage('')
+    setPhase('obstacle-handoff')
   }
 
   function handleStartTurn() {
@@ -688,10 +995,12 @@ function App() {
     hidePrivateInfo()
     setPendingTurnDirection(null)
     resetRobo()
+    resetObstacles()
     setPhase('setup')
   }
 
-  const isScreenMode = phase === 'direction' || phase === 'handoff'
+  const isScreenMode =
+    phase === 'direction' || phase === 'handoff' || phase === 'obstacle-handoff'
   // หน้า Setup แสดงตัวอย่าง Robo ตามขนาดและทิศที่เลือก, ตอนเล่นใช้ตำแหน่งจริงจาก State
   const displayRobo = phase === 'setup' ? createRobo(boardSize, direction) : robo
   const startPosition = getStartPosition(boardSize)
@@ -707,7 +1016,7 @@ function App() {
 
       {phase === 'setup' && (
         <>
-          <BoardSection robo={displayRobo} boardSize={boardSize} />
+          <BoardSection robo={displayRobo} boardSize={boardSize} obstacles={placedObstacles} />
           <div className="side-stack">
             <PlayerSetupPanel
               players={setupPlayers}
@@ -734,9 +1043,47 @@ function App() {
         />
       )}
 
+      {phase === 'obstacle-handoff' && (
+        <ObstacleHandoffScreen
+          playerName={players[obstaclePlayerIndex].name}
+          obstacleCount={currentObstacleHand.length}
+          step={obstacleTurn + 1}
+          total={players.length}
+          onStart={handleStartObstacleTurn}
+        />
+      )}
+
+      {phase === 'obstacle' && (
+        <>
+          <BoardSection
+            robo={displayRobo}
+            boardSize={boardSize}
+            obstacles={placedObstacles}
+            pendingCell={pendingCell}
+            pendingTypeId={selectedObstacle ? selectedObstacle.typeId : null}
+            onCellClick={handleObstacleCellClick}
+          />
+          <div className="side-stack">
+            <ObstaclePlacementPanel
+              playerName={players[obstaclePlayerIndex].name}
+              step={obstacleTurn + 1}
+              total={players.length}
+              hand={currentObstacleHand}
+              selectedUid={selectedObstacleUid}
+              pendingCell={pendingCell}
+              message={placementMessage}
+              onSelect={setSelectedObstacleUid}
+              onConfirm={handleConfirmPlaceObstacle}
+              onFinish={handleFinishObstacleTurn}
+              onResetGame={handleResetGame}
+            />
+          </div>
+        </>
+      )}
+
       {phase === 'board' && (
         <>
-          <BoardSection robo={displayRobo} boardSize={boardSize} />
+          <BoardSection robo={displayRobo} boardSize={boardSize} obstacles={placedObstacles} />
           <div className="side-stack">
             <TurnPanel
               players={players}

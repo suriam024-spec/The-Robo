@@ -680,6 +680,58 @@
   line-height: 1.5;
 }
 
+/* M3.2: แผงวาง Obstacle */
+.obstacle-choice {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #7a5638;
+  border-radius: 8px;
+  color: #f0c9a0;
+  background: #3a2a1d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.obstacle-choice:hover {
+  border-color: #e0a060;
+}
+
+.obstacle-choice.selected {
+  color: #2a1a0d;
+  border-color: #f0b878;
+  background: #f0b878;
+}
+
+.obstacle-choice:focus-visible {
+  outline: 2px solid #f0b878;
+  outline-offset: 2px;
+}
+
+.placement-status {
+  margin: 12px 0 0;
+  color: #c2c9b6;
+  font-size: 12px;
+}
+
+.placement-message {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #7a4540;
+  border-radius: 8px;
+  color: #f0d4d0;
+  background: #2a1b19;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.confirm-place-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
 /* Board */
 .board-section {
   --board-fit: 100%;
@@ -780,6 +832,84 @@
   font-size: 16cqw;
 }
 
+/* M3.2: ช่องที่แตะเลือกได้ตอนวาง Obstacle */
+.cell.placeable {
+  cursor: pointer;
+}
+
+.cell.placeable:hover {
+  border-color: #a8c77a;
+}
+
+.cell.placeable.starting-point,
+.cell.placeable.locked-zone {
+  cursor: not-allowed;
+}
+
+.cell.placeable:focus-visible {
+  outline: 2px solid #d4e7a7;
+  outline-offset: -2px;
+}
+
+.cell.pending {
+  outline: 2px dashed #f0b878;
+  outline-offset: -2px;
+  background: #3b3326;
+}
+
+/* M3.2: ป้าย Obstacle (cqw อ้างอิงช่อง เพราะป้ายอยู่ข้างในช่อง) */
+.obstacle-token {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84cqw;
+  height: 84cqw;
+  border: 2px solid #e0a060;
+  border-radius: 14%;
+  color: #f6d5b0;
+  background: #4a2f1d;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.obstacle-token.preview {
+  border-style: dashed;
+  opacity: 0.7;
+}
+
+.obstacle-short {
+  font-size: 16cqw;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.obstacle-mark {
+  display: none;
+  font-size: 50cqw;
+  font-weight: 900;
+  line-height: 1;
+}
+
+/* ถ้า Robo ยืนบนช่องที่มี Obstacle ให้ป้าย Obstacle ย่อเป็นป้ายเล็กที่มุม */
+.cell.has-robo .obstacle-token {
+  position: absolute;
+  top: 2cqw;
+  right: 2cqw;
+  width: 34cqw;
+  height: 34cqw;
+  border-width: 1px;
+}
+
+.cell.has-robo .obstacle-short {
+  display: none;
+}
+
+.cell.has-robo .obstacle-mark {
+  display: inline;
+  font-size: 22cqw;
+}
+
 .robo-token {
   display: flex;
   flex-direction: column;
@@ -826,6 +956,14 @@
   .robo-arrow {
     font-size: 46cqw;
   }
+
+  .obstacle-short {
+    display: none;
+  }
+
+  .obstacle-mark {
+    display: inline;
+  }
 }
 
 /* Legend */
@@ -870,6 +1008,14 @@
 
 .normal-swatch {
   background: #2b3329;
+}
+
+.obstacle-swatch {
+  color: #f6d5b0;
+  border-color: #e0a060;
+  background: #4a2f1d;
+  font-size: 8px;
+  font-weight: 900;
 }
 
 /* Footer */
@@ -1147,7 +1293,8 @@
   .secondary-button,
   .turn-direction-button,
   .toggle-button,
-  .test-command-button {
+  .test-command-button,
+  .obstacle-choice {
     transition: none;
   }
 }
