@@ -1,0 +1,10 @@
+/* รวมไฟล์สไตล์ทั้งหมด — ลำดับ @import สำคัญ ห้ามสลับ
+   (กฎที่อยู่หลังจะทับกฎที่อยู่ก่อน ลำดับนี้เท่ากับลำดับเดิมใน App.css ทุกประการ) */
+@import './base.css';
+@import './setup.css';
+@import './buttons.css';
+@import './screens.css';
+@import './turn.css';
+@import './obstacle-panel.css';
+@import './board.css';
+@import './responsive.css';

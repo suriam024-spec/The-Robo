@@ -1,0 +1,260 @@
+/* Turn panel (M2) */
+.turn-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px;
+  border: 1px solid #343832;
+  border-radius: 16px;
+  background: #1b1f1b;
+}
+
+.turn-heading h2 {
+  margin: 5px 0 0;
+  color: #f0eee6;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+
+.turn-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.turn-chip {
+  max-width: 100%;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid #41463e;
+  border-radius: 999px;
+  color: #9b9e94;
+  background: #252a24;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-chip.current {
+  color: #182014;
+  border-color: #b7d68b;
+  background: #b7d68b;
+}
+
+.turn-ready,
+.turn-active {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.private-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.toggle-button {
+  min-height: 44px;
+  padding: 10px 8px;
+  border: 1px solid #41463e;
+  border-radius: 10px;
+  color: #c2c9b6;
+  background: #252a24;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.toggle-button:hover {
+  border-color: #a8c77a;
+}
+
+.toggle-button.open {
+  color: #182014;
+  border-color: #b7d68b;
+  background: #b7d68b;
+}
+
+.private-card {
+  padding: 14px;
+  border: 1px solid #464c40;
+  border-radius: 12px;
+  background: #111510;
+}
+
+.private-card-title {
+  margin-bottom: 10px;
+  color: #c2c9b6;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.private-card-title span {
+  color: #858b7e;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.card-group-label {
+  margin: 10px 0 6px;
+  color: #9b9e94;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.card-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.game-card {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.movement-card {
+  color: #182014;
+  border: 1px solid #b7d68b;
+  background: #b7d68b;
+}
+
+.virus-card {
+  color: #f0d4d0;
+  border: 1px solid #7a4540;
+  background: #4a2b28;
+}
+
+.mission-card {
+  border-color: #665a3c;
+  background: #2a2619;
+}
+
+.mission-name {
+  color: #e6cf94;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.private-note {
+  margin: 8px 0 0;
+  color: #8f8567;
+  font-size: 11px;
+}
+
+.end-turn-button {
+  width: 100%;
+}
+
+/* M3.1: แผงทดสอบการเคลื่อนที่ (ชั่วคราว ลบเมื่อทำ M4 เสร็จ) */
+.test-panel {
+  border-color: #5b6a45;
+}
+
+.crash-counter {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid #7a4540;
+  border-radius: 10px;
+  background: #2a1b19;
+}
+
+.crash-label {
+  color: #d9a29b;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.crash-counter strong {
+  color: #f0d4d0;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.crash-note {
+  margin-left: auto;
+  color: #8f6f6a;
+  font-size: 10px;
+}
+
+.test-command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.test-command-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #41463e;
+  border-radius: 8px;
+  color: #c2c9b6;
+  background: #252a24;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.test-command-button:hover {
+  border-color: #a8c77a;
+  background: #2d352a;
+}
+
+.test-command-button:active {
+  color: #182014;
+  border-color: #b7d68b;
+  background: #b7d68b;
+}
+
+.test-command-button:focus-visible {
+  outline: 2px solid #b7d68b;
+  outline-offset: 2px;
+}
+
+.test-command-name {
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.test-command-desc {
+  color: #858b7e;
+  font-size: 10px;
+}
+
+.test-command-button:active .test-command-desc {
+  color: #3c4a2b;
+}
+
+.test-result {
+  min-height: 2.8em;
+  margin: 12px 0 0;
+  color: #e2e6d9;
+  font-size: 12px;
+  line-height: 1.5;
+}

@@ -1,0 +1,114 @@
+/* M3.2: แผงวาง Obstacle */
+.obstacle-choice {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #7a5638;
+  border-radius: 8px;
+  color: #f0c9a0;
+  background: #3a2a1d;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.obstacle-choice:hover {
+  border-color: #e0a060;
+}
+
+.obstacle-choice.selected {
+  color: #2a1a0d;
+  border-color: #f0b878;
+  background: #f0b878;
+}
+
+.obstacle-choice:focus-visible {
+  outline: 2px solid #f0b878;
+  outline-offset: 2px;
+}
+
+.placement-status {
+  margin: 12px 0 0;
+  color: #c2c9b6;
+  font-size: 12px;
+}
+
+.placement-message {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #7a4540;
+  border-radius: 8px;
+  color: #f0d4d0;
+  background: #2a1b19;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.confirm-place-button {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* M3.3: เลือกปลายทางของ The Hole */
+.warp-chooser {
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid #3f6a78;
+  border-radius: 10px;
+  background: #12242a;
+}
+
+.warp-note {
+  margin: 0 0 10px;
+  color: #c4e3ec;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.warp-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.warp-choice-button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid #4f8396;
+  border-radius: 8px;
+  color: #d4eef6;
+  background: #1a3640;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.warp-choice-button:hover {
+  border-color: #8fd3e8;
+  background: #214452;
+}
+
+.warp-choice-button:active {
+  color: #0c1f26;
+  border-color: #8fd3e8;
+  background: #8fd3e8;
+}
+
+.warp-choice-button:focus-visible {
+  outline: 2px solid #8fd3e8;
+  outline-offset: 2px;
+}
+
+.test-command-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.test-command-button:disabled:hover {
+  border-color: #41463e;
+  background: #252a24;
+}

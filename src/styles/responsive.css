@@ -1,0 +1,263 @@
+/* Desktop: two-column layout */
+@media (min-width: 900px) {
+  .game-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+    grid-template-areas:
+      "header header"
+      "board side"
+      "footer footer";
+    align-items: start;
+    column-gap: 28px;
+    row-gap: 20px;
+    width: min(calc(100% - 64px), 1600px);
+    padding: 28px 0 24px;
+  }
+
+  .game-shell.screen-mode {
+    display: block;
+    width: min(calc(100% - 64px), 760px);
+  }
+
+  .game-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px 18px;
+    grid-area: header;
+    margin-bottom: 0;
+  }
+
+  .game-shell.screen-mode .game-header {
+    margin-bottom: 28px;
+  }
+
+  .game-header h1 {
+    margin: 0;
+    font-size: clamp(36px, 3.4vw, 48px);
+  }
+
+  .board-section {
+    --board-fit: min(100%, 82vh);
+    grid-area: board;
+    width: 100%;
+    padding: 22px;
+  }
+
+  .side-stack {
+    grid-area: side;
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    margin-top: 0;
+    overflow-y: auto;
+  }
+
+  .setup-panel {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 22px;
+    padding: 26px;
+  }
+
+  .setup-panel.player-setup {
+    gap: 18px;
+  }
+
+  .turn-panel {
+    padding: 26px;
+  }
+
+  .direction-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .direction-button {
+    min-height: 72px;
+  }
+
+  .size-button {
+    min-height: 72px;
+  }
+
+  .game-footer {
+    grid-area: footer;
+    padding-top: 0;
+  }
+}
+
+/* Tablet / small desktop */
+@media (min-width: 681px) and (max-width: 899px) {
+  .game-shell {
+    padding-top: 32px;
+  }
+
+  .game-header {
+    margin-bottom: 24px;
+  }
+
+  .setup-panel {
+    padding: 18px;
+  }
+
+  .board-section {
+    --board-fit: min(100%, 76vh);
+    padding: 18px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 680px) {
+  .game-shell {
+    width: calc(100% - 20px);
+    max-width: 520px;
+    padding: 20px 0;
+    margin: 0 auto;
+  }
+
+  .game-header {
+    margin-bottom: 16px;
+  }
+
+  .game-header h1 {
+    font-size: clamp(32px, 9vw, 44px);
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+
+  .side-stack {
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .setup-panel {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .setup-panel.player-setup {
+    gap: 12px;
+  }
+
+  .setup-copy h2 {
+    font-size: 17px;
+  }
+
+  .setup-copy p {
+    font-size: 11px;
+  }
+
+  .direction-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .direction-button {
+    min-height: 46px;
+    font-size: 10px;
+  }
+
+  .direction-arrow {
+    font-size: 19px;
+  }
+
+  .size-button {
+    min-height: 52px;
+  }
+
+  .size-value {
+    font-size: 15px;
+  }
+
+  .player-input {
+    font-size: 16px;
+  }
+
+  .screen-card {
+    padding: 22px 16px;
+  }
+
+  .turn-direction-picker {
+    gap: 8px;
+  }
+
+  .turn-direction-button {
+    padding: 14px 8px;
+  }
+
+  .turn-panel {
+    gap: 12px;
+    padding: 14px 12px;
+  }
+
+  .turn-heading h2 {
+    font-size: 19px;
+  }
+
+  .board-section {
+    padding: 9px;
+    border-radius: 12px;
+  }
+
+  .board-heading {
+    margin-bottom: 10px;
+  }
+
+  .board-heading h2 {
+    font-size: 17px;
+  }
+
+  .board-frame {
+    padding: 3px;
+  }
+
+  .board {
+    width: 100%;
+    gap: 2px;
+  }
+
+  .cell {
+    border-radius: 3px;
+  }
+
+  .robo-token {
+    width: 70%;
+    border-width: 1px;
+  }
+
+  .board-legend {
+    gap: 8px 12px;
+    margin-top: 12px;
+  }
+
+  .legend-item {
+    font-size: 10px;
+  }
+
+  .game-footer {
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 12px;
+    font-size: 9px;
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .direction-button,
+  .count-button,
+  .primary-button,
+  .secondary-button,
+  .turn-direction-button,
+  .toggle-button,
+  .test-command-button,
+  .obstacle-choice,
+  .warp-choice-button {
+    transition: none;
+  }
+}
