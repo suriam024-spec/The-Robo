@@ -1,10 +1,12 @@
 // M3.1 — ตรรกะการเคลื่อนที่ของ Robo (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
 // M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole)
+// R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
 // ทิศ: UP = แถวลดลง, DOWN = แถวเพิ่มขึ้น, LEFT = คอลัมน์ลดลง, RIGHT = คอลัมน์เพิ่มขึ้น
 
-import { getHoleDestinations, isDamaged } from "../obstacles/obstacles.js";
+import { getObstacleAt } from "../obstacles/obstacles.js";
+import { getObstacleBehavior } from "../obstacles/types/index.js";
 
 // เรียงตามเข็มนาฬิกา: หันขวา = ไปตัวถัดไป, หันซ้าย = ย้อนกลับ
 export const FACINGS = ["UP", "RIGHT", "DOWN", "LEFT"];
@@ -68,26 +70,6 @@ export function turnFacing(facing, turn) {
   throw new Error(`Unknown turn: ${turn}`);
 }
 
-// ช่องนี้มี The Wall หรือไม่ (Wall ไม่มีระบบชำรุด จึงใช้งานได้ตลอด)
-function isWallAt(obstacles, row, col) {
-  return obstacles.some(
-    (item) => item.typeId === "wall" && item.row === row && item.col === col,
-  );
-}
-
-// The Hole ที่ "ใช้งานได้" ในช่องนี้ (Hole ที่ชำรุดไม่ทำงาน Robo เดินผ่าน/หยุดได้เหมือนช่องปกติ)
-function getActiveHoleAt(obstacles, row, col) {
-  return (
-    obstacles.find(
-      (item) =>
-        item.typeId === "hole" &&
-        item.row === row &&
-        item.col === col &&
-        !isDamaged(item),
-    ) ?? null
-  );
-}
-
 // ผลลัพธ์พื้นฐานของการเคลื่อนที่ (ฟิลด์ของ Obstacle ต่าง ๆ เริ่มที่ค่าว่าง)
 function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
   return {
@@ -102,8 +84,14 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
     pendingWarp: null, // ต้องให้ผู้เล่นเลือกปลายทางก่อน: { entryUid, row, col, destinations }
     returnedToStart: false, // Hole ไม่มีปลายทาง → กลับ Starting Point
     damageUid: null, // uid ของ Obstacle ที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
+    triggers: [], // Obstacle ที่ "ทำงาน" ระหว่างคำสั่งนี้: [{ uid, typeId, effect }] (ไว้นับ Secret Mission ใน M6)
     ...extra,
   };
+}
+
+// บันทึกว่า Obstacle ใบนี้ทำงานด้วยผลชนิดไหน (effect = kind ของผลมาตรฐาน)
+function makeTrigger(obstacle, effect) {
+  return { uid: obstacle.uid, typeId: obstacle.typeId, effect };
 }
 
 // ทำตามคำสั่งหนึ่งคำสั่ง: หันก่อน แล้วเดินทีละช่องตามทิศที่หัน
@@ -112,18 +100,20 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
 //   Robo กลับ Starting Point โดยคงทิศที่หันอยู่ ณ ตอนตก
 // - ช่องถัดไปเป็น The Wall → หยุดอยู่ช่องก่อนถึง Wall (blocked = true), ไม่นับ Crash (W1/W2)
 // - ก้าวเข้าช่องที่มี The Hole ที่ใช้งานได้ (ทั้ง "ผ่าน" และ "ลงพอดี") → หยุดเดินทันที
-//   (ก้าวที่เหลือยกเลิก) แล้ว (OWNER ตัดสิน H1–H5, D4, D5):
-//     · ปลายทางที่ใช้ได้ (Hole อื่นที่ไม่ชำรุด) 0 จุด → กลับ Starting Point, ไม่นับ Crash, คงทิศ
+//   (ก้าวที่เหลือยกเลิก) แล้ว (OWNER ตัดสิน H1–H5, H6, D4, D5):
+//     · ปลายทางที่ใช้ได้ (Hole อื่นที่ไม่ชำรุด) 0 จุด → กลับ Starting Point, ไม่นับ Crash, คงทิศ,
+//       Hole ที่ก้าวเข้าชำรุด (damageUid, กติกา H6)
 //     · 1 จุด → วาร์ปไปจุดนั้นอัตโนมัติ, คงทิศ, Hole ปลายทางชำรุด (damageUid)
 //     · ตั้งแต่ 2 จุด → คืน pendingWarp ให้ผู้เล่นเลือก แล้วเรียก completeHoleWarp ต่อ
 //       (ระหว่างรอ Robo อยู่บน Hole ที่ก้าวเข้า)
+//   (กติกาของแต่ละชนิดอยู่ในไฟล์ obstacles/types/<ชนิด>.js ลูปนี้แค่ทำตาม "ผล" ที่ทะเบียนตอบกลับ)
 //   นับเฉพาะช่องที่ "ก้าวเข้าไปใหม่" เท่านั้น: Robo ที่ยืนอยู่บน Hole เดิมแล้วสั่งหัน/เดินออก
 //   จะไม่ทำให้ Hole นั้นทำงาน และ Robo ที่วาร์ปมาถึงปลายทางจะไม่วาร์ปซ้ำ
 //
 // obstacles = รายการ Obstacle บนกระดาน ({ uid, typeId, row, col, damagedTurns, ... })
 //
 // คืนค่า: { robo, crashed, blocked, blockedBy, stepsTaken, facingBefore, facingAfterTurn,
-//           warp, pendingWarp, returnedToStart, damageUid }
+//           warp, pendingWarp, returnedToStart, damageUid, triggers }
 //   robo = สถานะ Robo ใหม่ (ไม่แก้ค่าของ robo เดิม)
 //   stepsTaken = จำนวนก้าวที่เดินสำเร็จ (รวมก้าวที่เข้า Hole) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
 export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
@@ -150,77 +140,82 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
       );
     }
 
-    if (isWallAt(obstacles, nextRow, nextCol)) {
-      return createResult(
-        robo,
-        facingAfterTurn,
-        { row, col, facing: facingAfterTurn },
-        stepsTaken,
-        {
-          blocked: true,
-          blockedBy: "wall",
-        },
-      );
+    const here = getObstacleAt(obstacles, nextRow, nextCol);
+    const behavior = here ? getObstacleBehavior(here.typeId) : null;
+
+    if (behavior?.onBeforeEnter) {
+      const effect = behavior.onBeforeEnter({
+        obstacle: here,
+        obstacles,
+        row: nextRow,
+        col: nextCol,
+      });
+
+      if (effect?.kind === "block") {
+        return createResult(
+          robo,
+          facingAfterTurn,
+          { row, col, facing: facingAfterTurn },
+          stepsTaken,
+          {
+            blocked: true,
+            blockedBy: effect.blockedBy,
+            triggers: [makeTrigger(here, effect.kind)],
+          },
+        );
+      }
+      if (effect) {
+        throw new Error(`Unsupported onBeforeEnter effect: ${effect.kind}`);
+      }
     }
 
     row = nextRow;
     col = nextCol;
     stepsTaken += 1;
 
-    const hole = getActiveHoleAt(obstacles, row, col);
-    if (hole) {
-      const destinations = getHoleDestinations(obstacles, hole.uid);
+    if (behavior?.onEnter) {
+      const effect = behavior.onEnter({ obstacle: here, obstacles, row, col });
 
-      if (destinations.length === 0) {
-        const start = getStartPosition(boardSize);
-        return createResult(
-          robo,
-          facingAfterTurn,
-          { row: start.row, col: start.col, facing: facingAfterTurn },
-          stepsTaken,
-          { returnedToStart: true },
-        );
-      }
+      if (effect) {
+        const triggers = [makeTrigger(here, effect.kind)];
 
-      if (destinations.length === 1) {
-        const target = destinations[0];
-        return createResult(
-          robo,
-          facingAfterTurn,
-          { row: target.row, col: target.col, facing: facingAfterTurn },
-          stepsTaken,
-          {
-            warp: {
-              entryUid: hole.uid,
-              fromRow: hole.row,
-              fromCol: hole.col,
-              toUid: target.uid,
-              toRow: target.row,
-              toCol: target.col,
+        if (effect.kind === "return-to-start") {
+          const start = getStartPosition(boardSize);
+          return createResult(
+            robo,
+            facingAfterTurn,
+            { row: start.row, col: start.col, facing: facingAfterTurn },
+            stepsTaken,
+            {
+              returnedToStart: true,
+              damageUid: effect.damageUid ?? null,
+              triggers,
             },
-            damageUid: target.uid,
-          },
-        );
-      }
+          );
+        }
 
-      return createResult(
-        robo,
-        facingAfterTurn,
-        { row, col, facing: facingAfterTurn },
-        stepsTaken,
-        {
-          pendingWarp: {
-            entryUid: hole.uid,
-            row: hole.row,
-            col: hole.col,
-            destinations: destinations.map((item) => ({
-              uid: item.uid,
-              row: item.row,
-              col: item.col,
-            })),
-          },
-        },
-      );
+        if (effect.kind === "warp") {
+          return createResult(
+            robo,
+            facingAfterTurn,
+            { row: effect.row, col: effect.col, facing: facingAfterTurn },
+            stepsTaken,
+            { warp: effect.warp, damageUid: effect.damageUid, triggers },
+          );
+        }
+
+        if (effect.kind === "choose-warp") {
+          return createResult(
+            robo,
+            facingAfterTurn,
+            { row, col, facing: facingAfterTurn },
+            stepsTaken,
+            { pendingWarp: effect.pendingWarp, triggers },
+          );
+        }
+
+        throw new Error(`Unsupported onEnter effect: ${effect.kind}`);
+      }
     }
   }
 

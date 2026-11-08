@@ -34,7 +34,7 @@ export function describeLastMove(lastMove) {
     return `${lastMove.label}: ชน Wall · เดินได้ ${lastMove.stepsTaken} ช่อง แล้วหยุด · หันไปทาง${facingText}`;
   }
   if (lastMove.returnedToStart) {
-    return `${lastMove.label}: ก้าวเข้า Hole แต่ไม่มีปลายทางที่ใช้ได้ · Robo กลับ Starting Point (ไม่นับ Crash) โดยหันไปทาง${facingText}`;
+    return `${lastMove.label}: ก้าวเข้า Hole แต่ไม่มีปลายทางที่ใช้ได้ · Robo กลับ Starting Point (ไม่นับ Crash) · Hole ที่ก้าวเข้าชำรุด · หันไปทาง${facingText}`;
   }
   if (lastMove.pendingWarp) {
     return `${lastMove.label}: ก้าวเข้า Hole · หยุดเดิน · เลือกปลายทางการวาร์ปด้านบน`;

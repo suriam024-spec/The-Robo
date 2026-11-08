@@ -1,0 +1,129 @@
+// เครื่องมือทดสอบ (ชั่วคราว): สถานการณ์สำเร็จรูปสำหรับทดสอบ Obstacle บนหน้าจอ
+// ใช้ได้เฉพาะตอนรัน npm run dev (App.jsx ตรวจ import.meta.env.DEV) ไม่ติดไปกับ build จริง
+// ไม่เปลี่ยนกติกาเกม: แค่จัด State เริ่มต้น (ตำแหน่ง Robo + Obstacle บนกระดาน) ไว้ให้
+// หลังทำเสร็จทุกชนิดแล้ว ไฟล์นี้และโฟลเดอร์ components/Dev ลบได้
+//
+// พิกัดที่เขียนในข้อความนับจาก 1 (แถว 1 = บนสุด) ตรงกับที่แสดงบนหน้าจอ
+// พิกัดในข้อมูล (row, col) นับจาก 0 เหมือนในโค้ดเกม ทั้งหมดอยู่บนกระดาน 9x9 (Starting Point = แถว 5 · คอลัมน์ 5)
+
+export const DEV_SCENARIOS = [
+  {
+    id: "wall",
+    title: "1. The Wall ขวางหน้า",
+    summary: "Wall อยู่ข้างหน้า 2 ช่อง ทดสอบการหยุดก่อนถึง Wall",
+    boardSize: 9,
+    robo: { row: 4, col: 4, facing: "UP" },
+    obstacles: [{ typeId: "wall", row: 2, col: 4 }],
+    steps: ["กด Walk++", "กด Walk (ครั้งที่สอง)"],
+    expect: [
+      "ข้อ 1: Robo หยุดที่ แถว 4 · คอลัมน์ 5 (ก่อนถึง Wall) เดินได้ 1 ช่อง ข้อความบอกว่าชน Wall",
+      "ข้อ 2: Robo ไม่ขยับ (เดินได้ 0 ช่อง) ข้อความยังบอกว่าชน Wall",
+      "ทั้งสองข้อ: Crash ต้องเป็น 0 / 3",
+    ],
+  },
+  {
+    id: "hole-0",
+    title: "2. The Hole ไม่มีปลายทาง",
+    summary: "มี Hole ใบเดียว กลับ Starting Point และ Hole ชำรุด",
+    boardSize: 9,
+    robo: { row: 4, col: 4, facing: "RIGHT" },
+    obstacles: [{ typeId: "hole", row: 4, col: 6 }],
+    steps: [
+      "กด Walk+",
+      "กด Walk++",
+      "จบตาให้ครบทุกคน 1 รอบ",
+      "กด Turn Around แล้วกด Walk",
+    ],
+    expect: [
+      "ข้อ 1: Robo กลับ Starting Point (แถว 5 · คอลัมน์ 5) ยังหันไปทางขวา Crash เป็น 0 / 3 (ไม่นับ Crash)",
+      "ข้อ 1: ข้อความบอกว่าไม่มีปลายทางที่ใช้ได้ และ Hole ที่ แถว 5 · คอลัมน์ 7 ชำรุด",
+      "ข้อ 2: Robo เดินผ่าน Hole ที่ชำรุดไปถึง แถว 5 · คอลัมน์ 8 เดินได้ 3 ช่อง ไม่กลับ Starting Point",
+      "ข้อ 3: เมื่อครบรอบ Hole กลับมาใช้งานได้",
+      "ข้อ 4: Robo ก้าวเข้า Hole ที่ใช้งานได้ กลับ Starting Point (แถว 5 · คอลัมน์ 5) หันไปทางซ้าย และ Hole ชำรุดอีกครั้ง",
+    ],
+  },
+  {
+    id: "hole-1",
+    title: "3. The Hole วาร์ปอัตโนมัติ",
+    summary: "มี Hole 2 ใบ วาร์ปเอง และ Hole ปลายทางชำรุด 1 Turn",
+    boardSize: 9,
+    robo: { row: 4, col: 4, facing: "RIGHT" },
+    obstacles: [
+      { typeId: "hole", row: 4, col: 6 },
+      { typeId: "hole", row: 1, col: 1 },
+    ],
+    steps: [
+      "กด Walk+",
+      "จบตาให้ครบทุกคน 1 รอบ (กดจบตา แล้วกดเริ่มตาของคนถัดไปในหน้าส่งต่อ จนกลับมาถึง Player 1)",
+    ],
+    expect: [
+      "ข้อ 1: Robo ไปอยู่ที่ แถว 2 · คอลัมน์ 2 หันไปทางขวา และหยุดเดิน (ไม่เดินต่อ)",
+      "ข้อ 1: Hole ที่ แถว 2 · คอลัมน์ 2 แสดงสถานะชำรุด ส่วน Hole ที่ แถว 5 · คอลัมน์ 7 ไม่ชำรุด Crash ยังเป็น 0",
+      "ข้อ 2: เมื่อครบรอบ Hole ที่ แถว 2 · คอลัมน์ 2 กลับมาใช้งานได้ (ไม่ชำรุดแล้ว)",
+    ],
+  },
+  {
+    id: "hole-2",
+    title: "4. The Hole เลือกปลายทางเอง",
+    summary: "มี Hole 3 ใบ ผู้เล่นเลือกปลายทาง",
+    boardSize: 9,
+    robo: { row: 4, col: 4, facing: "RIGHT" },
+    obstacles: [
+      { typeId: "hole", row: 4, col: 6 },
+      { typeId: "hole", row: 1, col: 1 },
+      { typeId: "hole", row: 7, col: 7 },
+    ],
+    steps: [
+      "กด Walk+",
+      "เลือกปลายทางจากปุ่มที่ขึ้นมา (อยากลองอีกปลายทาง ให้กดปุ่ม 'เริ่มสถานการณ์นี้ใหม่')",
+    ],
+    expect: [
+      "ข้อ 1: Robo หยุดบน Hole ที่ แถว 5 · คอลัมน์ 7 มีปุ่มให้เลือก 2 ปุ่ม (แถว 2 · คอลัมน์ 2 และ แถว 8 · คอลัมน์ 8) และช่องปลายทางถูกไฮไลต์บนกระดาน",
+      "ข้อ 1: ปุ่มคำสั่งเดินและปุ่มจบตาถูกล็อกจนกว่าจะเลือก",
+      "ข้อ 2: Robo วาร์ปไปปลายทางที่เลือก หันไปทางขวา Hole ที่เลือกชำรุด อีกใบไม่ชำรุด",
+    ],
+  },
+  {
+    id: "hole-damaged",
+    title: "5. The Hole ที่ชำรุดไม่ทำงาน",
+    summary: "Hole ชำรุดเดินผ่านได้ แล้วกลับมาใช้งานหลังครบรอบ",
+    boardSize: 9,
+    robo: { row: 4, col: 4, facing: "RIGHT" },
+    obstacles: [
+      { typeId: "hole", row: 4, col: 6, damagedTurns: 1 },
+      { typeId: "hole", row: 1, col: 1 },
+    ],
+    steps: ["กด Walk++", "จบตาให้ครบทุกคน 1 รอบ", "กด Turn Around แล้วกด Walk"],
+    expect: [
+      "ข้อ 1: Robo เดินผ่าน Hole ที่ชำรุดไปถึง แถว 5 · คอลัมน์ 8 เดินได้ 3 ช่อง ไม่วาร์ป",
+      "ข้อ 2: เมื่อครบรอบ Hole ที่ แถว 5 · คอลัมน์ 7 กลับมาใช้งานได้",
+      "ข้อ 3: Robo ก้าวเข้า Hole ที่ใช้งานได้แล้ววาร์ปไปที่ แถว 2 · คอลัมน์ 2 หันไปทางซ้าย",
+    ],
+  },
+  {
+    id: "fall",
+    title: "6. ตกแมพ (ไม่มี Obstacle)",
+    summary: "ตรวจการนับ Crash เหมือนเดิม",
+    boardSize: 9,
+    robo: { row: 1, col: 4, facing: "UP" },
+    obstacles: [],
+    steps: ["กด Walk++"],
+    expect: [
+      "Robo เดินได้ 1 ช่องแล้วตกแมพ กลับ Starting Point (แถว 5 · คอลัมน์ 5) ยังหันขึ้นบน",
+      "Crash เป็น 1 / 3",
+    ],
+  },
+];
+
+// แปลงรายการ Obstacle ของสถานการณ์เป็นรูปแบบเดียวกับที่ใช้บนกระดานจริง
+// ({ uid, typeId, row, col, ownerIndex, damagedTurns })
+export function buildScenarioObstacles(scenario) {
+  return scenario.obstacles.map((item, index) => ({
+    uid: `dev-${scenario.id}-${index}`,
+    typeId: item.typeId,
+    row: item.row,
+    col: item.col,
+    ownerIndex: 0,
+    damagedTurns: item.damagedTurns ?? 0,
+  }));
+}

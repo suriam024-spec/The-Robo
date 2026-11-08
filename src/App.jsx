@@ -2,6 +2,8 @@ import { useState } from 'react'
 import './styles/main.css'
 import Board from './components/Board/Board.jsx'
 import BoardSizePanel from './components/Board/BoardSizePanel.jsx'
+import DevScenarioBanner from './components/Dev/DevScenarioBanner.jsx'
+import DevScenarioPanel from './components/Dev/DevScenarioPanel.jsx'
 import HandoffScreen from './components/HandoffScreen/HandoffScreen.jsx'
 import ObstacleHandoffScreen from './components/HandoffScreen/ObstacleHandoffScreen.jsx'
 import ObstaclePlacementPanel from './components/Obstacles/ObstaclePlacementPanel.jsx'
@@ -17,6 +19,7 @@ import {
   MIN_PLAYERS,
   TURN_DIRECTIONS,
 } from './data/constants.js'
+import { DEV_SCENARIOS, buildScenarioObstacles } from './data/devScenarios.js'
 import { dealPlaceholders } from './data/placeholders.js'
 import {
   MOVEMENT_COMMANDS,
@@ -66,6 +69,9 @@ function App() {
   const [selectedObstacleUid, setSelectedObstacleUid] = useState(null)
   const [pendingCell, setPendingCell] = useState(null)
   const [placementMessage, setPlacementMessage] = useState('')
+
+  // เครื่องมือทดสอบ (ชั่วคราว): สถานการณ์ที่กำลังทดสอบอยู่ (ใช้ได้เฉพาะตอน npm run dev)
+  const [activeScenario, setActiveScenario] = useState(null)
 
   // Turn / Privacy
   const [turnActive, setTurnActive] = useState(false)
@@ -246,6 +252,7 @@ function App() {
 
     resetRobo()
     resetObstacles()
+    setActiveScenario(null)
     setPlayers(readyPlayers)
     setFirstPlayerIndex(randomFirst)
     setCurrentIndex(randomFirst)
@@ -253,6 +260,43 @@ function App() {
     setTurnActive(false)
     hidePrivateInfo()
     setPhase('direction')
+  }
+
+  // เครื่องมือทดสอบ (ชั่วคราว): ข้ามไปหน้ากระดานทันที โดยวาง Robo และ Obstacle ตามสถานการณ์
+  // ไม่เปลี่ยนกติกาเกม: เล่นต่อด้วยฟังก์ชันเดินและจบตาตัวเดิมทั้งหมด (ผู้เล่นคนแรกเริ่มตาแล้ว วนขวา)
+  function handleStartScenario(scenario) {
+    const readyPlayers = setupPlayers.map((player, index) => ({
+      id: player.id,
+      name: player.name.trim() || `Player ${index + 1}`,
+      ...dealPlaceholders(index),
+    }))
+
+    setBoardSize(scenario.boardSize)
+    setRobo({ ...scenario.robo })
+    setCrashCount(0)
+    setLastMove(null)
+    setPendingWarp(null)
+    resetObstacles()
+    setPlacedObstacles(buildScenarioObstacles(scenario))
+    setPlayers(readyPlayers)
+    setFirstPlayerIndex(0)
+    setCurrentIndex(0)
+    setTurnDirection('RIGHT')
+    setPendingTurnDirection(null)
+    setTurnActive(true)
+    hidePrivateInfo()
+    setActiveScenario(scenario)
+    setPhase('board')
+  }
+
+  function handleExitScenario() {
+    setTurnActive(false)
+    hidePrivateInfo()
+    setPendingTurnDirection(null)
+    resetRobo()
+    resetObstacles()
+    setActiveScenario(null)
+    setPhase('setup')
   }
 
   function handleBackToSetup() {
@@ -309,6 +353,7 @@ function App() {
     setPendingTurnDirection(null)
     resetRobo()
     resetObstacles()
+    setActiveScenario(null)
     setPhase('setup')
   }
 
@@ -342,6 +387,9 @@ function App() {
             <button className="primary-button" type="button" onClick={handleStartGame}>
               เริ่มเกม · สุ่มผู้เล่นคนแรก
             </button>
+            {import.meta.env.DEV && (
+              <DevScenarioPanel scenarios={DEV_SCENARIOS} onStart={handleStartScenario} />
+            )}
           </div>
         </>
       )}
@@ -403,6 +451,13 @@ function App() {
             warpOptions={pendingWarp ? pendingWarp.destinations : []}
           />
           <div className="side-stack">
+            {import.meta.env.DEV && activeScenario && (
+              <DevScenarioBanner
+                scenario={activeScenario}
+                onRestart={() => handleStartScenario(activeScenario)}
+                onExit={handleExitScenario}
+              />
+            )}
             <TurnPanel
               players={players}
               currentIndex={currentIndex}
