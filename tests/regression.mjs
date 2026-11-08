@@ -9,6 +9,8 @@
 //   10106d6279580d76 = โค้ดก่อน R2 และหลัง R2 (ยืนยันว่า R2 ไม่เปลี่ยนพฤติกรรม)
 //   b14ba659e0a1c497 = หลังกติกา H6 (Hole ที่ก้าวเข้าแล้วกลับ Starting Point ชำรุดด้วย)
 //                      เทียบกรณีต่อกรณีแล้ว เปลี่ยนเฉพาะผลที่ returnedToStart และเฉพาะฟิลด์ damageUid
+//   36eb607c14d17925 = หลังเพิ่ม The Scrap (S1–S3: ก้าวเข้า Scrap ที่ใช้งานได้ → หยุดบนช่อง และชำรุดทันที)
+//                      เทียบกรณีต่อกรณี 80,000 กรณี เปลี่ยนเฉพาะกรณีที่ก้าวเข้า Scrap ที่ใช้งานได้ (1,411 กรณี)
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -35,7 +37,7 @@ import {
 } from "../src/game/obstacles/obstacles.js";
 
 // รหัสสรุปผลของโค้ดปัจจุบัน (แก้ได้เฉพาะเมื่อ OWNER อนุมัติเปลี่ยนกติกา และต้องบันทึกประวัติด้านบน)
-const GOLDEN_FUZZ = "b14ba659e0a1c497";
+const GOLDEN_FUZZ = "36eb607c14d17925";
 const FUZZ_CASES = 20000;
 
 let passed = 0;
@@ -182,6 +184,90 @@ test("Hole H6: ใบอื่นชำรุดหมดก็กลับ Star
   assert.equal(r3.damageUid, null);
 });
 
+test("Scrap: ก้าวเข้ากลางทาง หยุดบนช่อง Scrap ก้าวที่เหลือยกเลิก ไม่นับ Crash ชำรุดทันที", () => {
+  const scraps = [ob("s", "scrap", 3, 4)];
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    scraps,
+  );
+  assert.deepEqual(r.robo, { row: 3, col: 4, facing: "UP" });
+  assert.equal(r.stepsTaken, 1);
+  assert.equal(r.stoppedBy, "scrap");
+  assert.equal(r.damageUid, "s");
+  assert.equal(r.crashed, false);
+  assert.equal(r.blocked, false);
+});
+
+test("Scrap: เป็นก้าวสุดท้ายพอดี ให้ผลเหมือนกัน (หยุดบน Scrap ชำรุดทันที)", () => {
+  const scraps = [ob("s", "scrap", 2, 4)];
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus"),
+    9,
+    scraps,
+  );
+  assert.deepEqual(r.robo, { row: 2, col: 4, facing: "UP" });
+  assert.equal(r.stepsTaken, 2);
+  assert.equal(r.stoppedBy, "scrap");
+  assert.equal(r.damageUid, "s");
+});
+
+test("Scrap: หันก่อนแล้วเดิน ยังหันตามคำสั่งแม้หยุดที่ Scrap", () => {
+  const scraps = [ob("s", "scrap", 4, 5)];
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("turn-right-plus-plus"),
+    9,
+    scraps,
+  );
+  assert.deepEqual(r.robo, { row: 4, col: 5, facing: "RIGHT" });
+  assert.equal(r.stepsTaken, 1);
+});
+
+test("Scrap ที่ชำรุดไม่ทำงาน / ยืนบน Scrap แล้วเดินออกไม่ทำงานซ้ำ / ครบรอบกลับมาใช้ได้", () => {
+  const damaged = [ob("s", "scrap", 3, 4, 1)];
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    damaged,
+  );
+  assert.deepEqual(r.robo, { row: 1, col: 4, facing: "UP" });
+  assert.equal(r.stoppedBy, null);
+  assert.equal(r.damageUid, null);
+  const standing = applyMovementCommand(
+    { row: 3, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("s", "scrap", 3, 4)],
+  );
+  assert.deepEqual(standing.robo, { row: 2, col: 4, facing: "UP" });
+  assert.equal(standing.stoppedBy, null);
+  const hit = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("s", "scrap", 3, 4)],
+  );
+  let list = damageObstacle(
+    [ob("s", "scrap", 3, 4)],
+    hit.damageUid,
+    getDamageDuration("scrap"),
+  );
+  assert.equal(isDamaged(list[0]), true);
+  list = tickDamage(list);
+  assert.equal(isDamaged(list[0]), false);
+  const again = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    list,
+  );
+  assert.equal(again.stoppedBy, "scrap");
+});
+
 test("Hole: 1 จุดปลายทาง วาร์ปอัตโนมัติ คงทิศ ปลายทางชำรุด หยุดเดิน", () => {
   const holes = [ob("h1", "hole", 4, 6), ob("h2", "hole", 0, 0)];
   const r = applyMovementCommand(
@@ -259,10 +345,10 @@ test("Hole: Robo ยืนบน Hole แล้วสั่งเดินออ
   assert.deepEqual(r.robo, { row: 4, col: 6, facing: "RIGHT" });
 });
 
-test("ชนิดที่ยังไม่ทำ (Oil/Scrap ฯลฯ) ยังไม่มีผลต่อการเดิน", () => {
+test("ชนิดที่ยังไม่ทำ (Oil/Destroyer/Magnet ฯลฯ) ยังไม่มีผลต่อการเดิน", () => {
   const others = [
     ob("a", "oil", 3, 4),
-    ob("b", "scrap", 2, 4),
+    ob("b", "destroyer", 2, 4),
     ob("c", "magnet", 1, 4),
   ];
   const r = applyMovementCommand(

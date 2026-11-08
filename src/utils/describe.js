@@ -1,6 +1,7 @@
 // ข้อความอธิบายสำหรับแสดงบนหน้าจอ (ฟังก์ชันล้วน ไม่ผูกกับ React)
 
 import { DIRECTIONS } from "../data/constants.js";
+import { getObstacleType } from "../game/obstacles/obstacles.js";
 
 export function getDirectionInfo(facing) {
   return DIRECTIONS.find((item) => item.id === facing);
@@ -35,6 +36,10 @@ export function describeLastMove(lastMove) {
   }
   if (lastMove.returnedToStart) {
     return `${lastMove.label}: ก้าวเข้า Hole แต่ไม่มีปลายทางที่ใช้ได้ · Robo กลับ Starting Point (ไม่นับ Crash) · Hole ที่ก้าวเข้าชำรุด · หันไปทาง${facingText}`;
+  }
+  if (lastMove.stoppedBy) {
+    const typeName = getObstacleType(lastMove.stoppedBy)?.label ?? lastMove.stoppedBy;
+    return `${lastMove.label}: ก้าวเข้า ${typeName} · เดินได้ ${lastMove.stepsTaken} ช่อง แล้วหยุดบนช่องนั้น · ${typeName} ชำรุด · หันไปทาง${facingText}`;
   }
   if (lastMove.pendingWarp) {
     return `${lastMove.label}: ก้าวเข้า Hole · หยุดเดิน · เลือกปลายทางการวาร์ปด้านบน`;

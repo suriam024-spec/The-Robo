@@ -1,5 +1,5 @@
 // M3.1 — ตรรกะการเคลื่อนที่ของ Robo (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
-// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole)
+// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap)
 // R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
@@ -83,6 +83,7 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
     warp: null, // วาร์ปสำเร็จแล้ว: { entryUid, fromRow, fromCol, toUid, toRow, toCol }
     pendingWarp: null, // ต้องให้ผู้เล่นเลือกปลายทางก่อน: { entryUid, row, col, destinations }
     returnedToStart: false, // Hole ไม่มีปลายทาง → กลับ Starting Point
+    stoppedBy: null, // ชนิด Obstacle ที่ทำให้ Robo หยุดบนช่อง (เช่น "scrap")
     damageUid: null, // uid ของ Obstacle ที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
     triggers: [], // Obstacle ที่ "ทำงาน" ระหว่างคำสั่งนี้: [{ uid, typeId, effect }] (ไว้นับ Secret Mission ใน M6)
     ...extra,
@@ -106,6 +107,8 @@ function makeTrigger(obstacle, effect) {
 //     · 1 จุด → วาร์ปไปจุดนั้นอัตโนมัติ, คงทิศ, Hole ปลายทางชำรุด (damageUid)
 //     · ตั้งแต่ 2 จุด → คืน pendingWarp ให้ผู้เล่นเลือก แล้วเรียก completeHoleWarp ต่อ
 //       (ระหว่างรอ Robo อยู่บน Hole ที่ก้าวเข้า)
+// - ก้าวเข้าช่องที่มี The Scrap ที่ใช้งานได้ (ผ่านหรือลงพอดี) → หยุดบนช่อง Scrap (ก้าวที่เหลือยกเลิก),
+//   ไม่นับ Crash, ยังหันตามคำสั่ง, Scrap ชำรุดทันที (damageUid) และ stoppedBy = "scrap" (OWNER ตัดสิน S1–S3)
 //   (กติกาของแต่ละชนิดอยู่ในไฟล์ obstacles/types/<ชนิด>.js ลูปนี้แค่ทำตาม "ผล" ที่ทะเบียนตอบกลับ)
 //   นับเฉพาะช่องที่ "ก้าวเข้าไปใหม่" เท่านั้น: Robo ที่ยืนอยู่บน Hole เดิมแล้วสั่งหัน/เดินออก
 //   จะไม่ทำให้ Hole นั้นทำงาน และ Robo ที่วาร์ปมาถึงปลายทางจะไม่วาร์ปซ้ำ
@@ -113,7 +116,7 @@ function makeTrigger(obstacle, effect) {
 // obstacles = รายการ Obstacle บนกระดาน ({ uid, typeId, row, col, damagedTurns, ... })
 //
 // คืนค่า: { robo, crashed, blocked, blockedBy, stepsTaken, facingBefore, facingAfterTurn,
-//           warp, pendingWarp, returnedToStart, damageUid, triggers }
+//           warp, pendingWarp, returnedToStart, stoppedBy, damageUid, triggers }
 //   robo = สถานะ Robo ใหม่ (ไม่แก้ค่าของ robo เดิม)
 //   stepsTaken = จำนวนก้าวที่เดินสำเร็จ (รวมก้าวที่เข้า Hole) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
 export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
@@ -188,6 +191,20 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
             stepsTaken,
             {
               returnedToStart: true,
+              damageUid: effect.damageUid ?? null,
+              triggers,
+            },
+          );
+        }
+
+        if (effect.kind === "stop") {
+          return createResult(
+            robo,
+            facingAfterTurn,
+            { row, col, facing: facingAfterTurn },
+            stepsTaken,
+            {
+              stoppedBy: here.typeId,
               damageUid: effect.damageUid ?? null,
               triggers,
             },

@@ -9,7 +9,6 @@ Then run:
 npm run dev -- --host 0.0.0.0
 npm run build
 cd C:\Users\User\Desktop\TheRobo
-tar -a -c -f TheRobo.zip --exclude=node_modules --exclude=dist --exclude=.git TheRobotar -a -c -f TheRobo.zip --exclude=node_modules --exclude=dist --exclude=.git TheRobo
 
 M1 checklist:
 - 9x9 board (81 cells)

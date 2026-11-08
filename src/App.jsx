@@ -150,6 +150,7 @@ function App() {
       crashed: result.crashed,
       blocked: result.blocked,
       returnedToStart: result.returnedToStart,
+      stoppedBy: result.stoppedBy,
       warp: result.warp,
       pendingWarp: Boolean(result.pendingWarp),
       facingAfterTurn: result.facingAfterTurn,

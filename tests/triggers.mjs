@@ -2,6 +2,7 @@
 // triggers = รายการ Obstacle ที่ "ทำงาน" ระหว่างคำสั่งหนึ่งคำสั่ง: [{ uid, typeId, effect }]
 // ไว้ให้ Secret Mission ใน M6 นับครั้ง (เช่น Wall Bumper) โดยไม่ต้องแก้ลูปเดินอีก
 // ชุดนี้เทียบเฉพาะรูปแบบและความสอดคล้องของ triggers ไม่เกี่ยวกับกติกาการเดิน (อยู่ใน regression.mjs)
+// effect ที่มีตอนนี้: block (Wall), stop (Scrap), return-to-start / warp / choose-warp (Hole)
 
 import assert from "node:assert/strict";
 import {
@@ -30,7 +31,12 @@ function test(name, fn) {
 
 const cmd = (id) => MOVEMENT_COMMANDS.find((c) => c.id === id);
 const ob = (uid, typeId, row, col, damagedTurns = 0) => ({
-  uid, typeId, row, col, ownerIndex: 0, damagedTurns,
+  uid,
+  typeId,
+  row,
+  col,
+  ownerIndex: 0,
+  damagedTurns,
 });
 const run = (robo, commandId, obstacles) =>
   applyMovementCommand(robo, cmd(commandId), 9, obstacles);
@@ -39,43 +45,102 @@ const right = { row: 4, col: 4, facing: "RIGHT" };
 console.log("ส่วนที่ 1: รูปแบบของ triggers");
 
 test("ไม่มี Obstacle / เดินปกติ / ตกแมพ → triggers ว่าง", () => {
-  assert.deepEqual(run({ row: 4, col: 4, facing: "UP" }, "walk", []).triggers, []);
-  assert.deepEqual(run({ row: 0, col: 4, facing: "UP" }, "walk", []).triggers, []);
+  assert.deepEqual(
+    run({ row: 4, col: 4, facing: "UP" }, "walk", []).triggers,
+    [],
+  );
+  assert.deepEqual(
+    run({ row: 0, col: 4, facing: "UP" }, "walk", []).triggers,
+    [],
+  );
 });
 
 test("Wall: บันทึก block (ทั้งกรณีหยุดกลางทางและติดตั้งแต่ก้าวแรก)", () => {
   const walls = [ob("w", "wall", 2, 4)];
   const r = run({ row: 4, col: 4, facing: "UP" }, "walk-plus-plus", walls);
   assert.deepEqual(r.triggers, [{ uid: "w", typeId: "wall", effect: "block" }]);
-  const r2 = run({ row: 4, col: 4, facing: "UP" }, "turn-right-plus", [ob("w2", "wall", 4, 5)]);
+  const r2 = run({ row: 4, col: 4, facing: "UP" }, "turn-right-plus", [
+    ob("w2", "wall", 4, 5),
+  ]);
   assert.equal(r2.stepsTaken, 0);
-  assert.deepEqual(r2.triggers, [{ uid: "w2", typeId: "wall", effect: "block" }]);
+  assert.deepEqual(r2.triggers, [
+    { uid: "w2", typeId: "wall", effect: "block" },
+  ]);
 });
 
 test("Hole 0 จุด: return-to-start (และชำรุดตามกติกา H6)", () => {
   const r = run(right, "walk", [ob("h1", "hole", 4, 5)]);
-  assert.deepEqual(r.triggers, [{ uid: "h1", typeId: "hole", effect: "return-to-start" }]);
+  assert.deepEqual(r.triggers, [
+    { uid: "h1", typeId: "hole", effect: "return-to-start" },
+  ]);
   assert.equal(r.damageUid, "h1");
 });
 
 test("Hole 1 จุด: warp", () => {
-  const r = run(right, "walk", [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0)]);
+  const r = run(right, "walk", [
+    ob("h1", "hole", 4, 5),
+    ob("h2", "hole", 0, 0),
+  ]);
   assert.deepEqual(r.triggers, [{ uid: "h1", typeId: "hole", effect: "warp" }]);
 });
 
 test("Hole 2 จุดขึ้นไป: choose-warp", () => {
-  const holes = [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0), ob("h3", "hole", 8, 8)];
+  const holes = [
+    ob("h1", "hole", 4, 5),
+    ob("h2", "hole", 0, 0),
+    ob("h3", "hole", 8, 8),
+  ];
   const r = run(right, "walk", holes);
-  assert.deepEqual(r.triggers, [{ uid: "h1", typeId: "hole", effect: "choose-warp" }]);
+  assert.deepEqual(r.triggers, [
+    { uid: "h1", typeId: "hole", effect: "choose-warp" },
+  ]);
+});
+
+test("Scrap: stop (ทั้งกลางทางและก้าวสุดท้าย) และชำรุดทันที", () => {
+  const r = run({ row: 4, col: 4, facing: "UP" }, "walk-plus-plus", [
+    ob("s", "scrap", 3, 4),
+  ]);
+  assert.deepEqual(r.triggers, [{ uid: "s", typeId: "scrap", effect: "stop" }]);
+  assert.equal(r.damageUid, "s");
+  const r2 = run({ row: 4, col: 4, facing: "UP" }, "walk-plus", [
+    ob("s2", "scrap", 2, 4),
+  ]);
+  assert.deepEqual(r2.triggers, [
+    { uid: "s2", typeId: "scrap", effect: "stop" },
+  ]);
+});
+
+test("Scrap ที่ชำรุด / ยืนบน Scrap แล้วเดินออก → ไม่นับว่าทำงาน", () => {
+  assert.deepEqual(
+    run({ row: 4, col: 4, facing: "UP" }, "walk", [ob("s", "scrap", 3, 4, 1)])
+      .triggers,
+    [],
+  );
+  assert.deepEqual(
+    run({ row: 3, col: 4, facing: "UP" }, "walk", [ob("s", "scrap", 3, 4)])
+      .triggers,
+    [],
+  );
 });
 
 test("Hole ที่ชำรุด / ยืนบน Hole แล้วเดินออก / ชนิดที่ยังไม่ทำ → ไม่นับว่าทำงาน", () => {
-  assert.deepEqual(run(right, "walk-plus", [ob("h1", "hole", 4, 5, 1), ob("h2", "hole", 0, 0)]).triggers, []);
   assert.deepEqual(
-    run({ row: 4, col: 5, facing: "RIGHT" }, "walk", [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0)]).triggers,
+    run(right, "walk-plus", [ob("h1", "hole", 4, 5, 1), ob("h2", "hole", 0, 0)])
+      .triggers,
     [],
   );
-  const others = [ob("a", "oil", 4, 5), ob("b", "scrap", 4, 6), ob("c", "destroyer", 4, 7)];
+  assert.deepEqual(
+    run({ row: 4, col: 5, facing: "RIGHT" }, "walk", [
+      ob("h1", "hole", 4, 5),
+      ob("h2", "hole", 0, 0),
+    ]).triggers,
+    [],
+  );
+  const others = [
+    ob("a", "oil", 4, 5),
+    ob("b", "spring", 4, 6),
+    ob("c", "destroyer", 4, 7),
+  ];
   assert.deepEqual(run(right, "walk-plus-plus", others).triggers, []);
 });
 
@@ -98,12 +163,32 @@ function makeRng(seed) {
   };
 }
 
-test("triggers สอดคล้องกับ blocked / returnedToStart / warp / pendingWarp ทุกกรณี", () => {
+test("triggers สอดคล้องกับ blocked / returnedToStart / warp / pendingWarp / stoppedBy ทุกกรณี", () => {
   const rng = makeRng(424242);
   const pick = (list) => list[Math.floor(rng() * list.length)];
   const typeIds = OBSTACLE_TYPES.map((t) => t.id);
-  const weighted = ["wall", "wall", "wall", "hole", "hole", "hole", "hole", "hole", ...typeIds];
-  const seen = { block: 0, "return-to-start": 0, warp: 0, "choose-warp": 0, none: 0 };
+  const weighted = [
+    "wall",
+    "wall",
+    "wall",
+    "scrap",
+    "scrap",
+    "scrap",
+    "hole",
+    "hole",
+    "hole",
+    "hole",
+    "hole",
+    ...typeIds,
+  ];
+  const seen = {
+    block: 0,
+    stop: 0,
+    "return-to-start": 0,
+    warp: 0,
+    "choose-warp": 0,
+    none: 0,
+  };
 
   for (let i = 0; i < 20000; i += 1) {
     const size = pick([9, 11, 13]);
@@ -120,17 +205,32 @@ test("triggers สอดคล้องกับ blocked / returnedToStart / war
     for (let k = 0; k < count; k += 1) {
       const near = rng() < 0.75;
       const offset = () => Math.floor(rng() * 7) - 3;
-      const row = near ? Math.min(size - 1, Math.max(0, robo.row + offset())) : Math.floor(rng() * size);
-      const col = near ? Math.min(size - 1, Math.max(0, robo.col + offset())) : Math.floor(rng() * size);
-      const result = placeObstacle(placed, { uid: `u${k}`, typeId: pick(weighted) }, row, col, size, 0);
+      const row = near
+        ? Math.min(size - 1, Math.max(0, robo.row + offset()))
+        : Math.floor(rng() * size);
+      const col = near
+        ? Math.min(size - 1, Math.max(0, robo.col + offset()))
+        : Math.floor(rng() * size);
+      const result = placeObstacle(
+        placed,
+        { uid: `u${k}`, typeId: pick(weighted) },
+        row,
+        col,
+        size,
+        0,
+      );
       if (result.ok) {
         placed = result.placed;
-        if (rng() < 0.25) placed = damageObstacle(placed, `u${k}`, 1 + Math.floor(rng() * 3));
+        if (rng() < 0.25)
+          placed = damageObstacle(placed, `u${k}`, 1 + Math.floor(rng() * 3));
       }
     }
 
     const r = applyMovementCommand(robo, pick(MOVEMENT_COMMANDS), size, placed);
-    assert.ok(r.triggers.length <= 1, "หนึ่งคำสั่งทำให้ Obstacle ทำงานได้ไม่เกิน 1 ใบ (เพราะหยุดทันที)");
+    assert.ok(
+      r.triggers.length <= 1,
+      "หนึ่งคำสั่งทำให้ Obstacle ทำงานได้ไม่เกิน 1 ใบ (เพราะหยุดทันที)",
+    );
 
     const expected = r.blocked
       ? "block"
@@ -140,7 +240,9 @@ test("triggers สอดคล้องกับ blocked / returnedToStart / war
           ? "warp"
           : r.pendingWarp
             ? "choose-warp"
-            : null;
+            : r.stoppedBy
+              ? "stop"
+              : null;
 
     if (expected === null) {
       assert.deepEqual(r.triggers, []);
@@ -156,10 +258,20 @@ test("triggers สอดคล้องกับ blocked / returnedToStart / war
   }
 
   // กันกรณีสุ่มแล้วไม่ครอบคลุม: ทุกผลต้องเกิดอย่างน้อยหลายครั้ง
-  for (const key of ["block", "return-to-start", "warp", "choose-warp"]) {
+  for (const key of [
+    "block",
+    "stop",
+    "return-to-start",
+    "warp",
+    "choose-warp",
+  ]) {
     assert.ok(seen[key] > 50, `ผล ${key} เกิดน้อยเกินไป (${seen[key]})`);
   }
-  console.log(`    ครอบคลุม: block ${seen.block} | return-to-start ${seen["return-to-start"]} | warp ${seen.warp} | choose-warp ${seen["choose-warp"]} | ไม่มี ${seen.none}`);
+  console.log(
+    `    ครอบคลุม: block ${seen.block} | stop ${seen.stop} | return-to-start ${seen["return-to-start"]} | warp ${seen.warp} | choose-warp ${seen["choose-warp"]} | ไม่มี ${seen.none}`,
+  );
 });
 
-console.log(`\nผ่านทั้งหมด ${passed} รายการ${process.exitCode ? " (มีรายการที่ไม่ผ่าน)" : ""}`);
+console.log(
+  `\nผ่านทั้งหมด ${passed} รายการ${process.exitCode ? " (มีรายการที่ไม่ผ่าน)" : ""}`,
+);
