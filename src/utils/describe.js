@@ -25,8 +25,18 @@ export function describeCell(row, col) {
 }
 
 // สรุปผลการเคลื่อนที่ครั้งล่าสุดเป็นข้อความ
+// ถ้ามี Oil ทำงานระหว่างทาง (extraSteps > 0) จะต่อท้ายว่าเดินเพิ่มกี่ช่อง และ Oil ชำรุดกี่อัน
 export function describeLastMove(lastMove) {
   if (!lastMove) return "ยังไม่ได้สั่งเคลื่อนที่";
+  const oilText =
+    lastMove.extraSteps > 0
+      ? ` · ก้าวเข้า Oil ทำให้เดินเพิ่ม ${lastMove.extraSteps} ช่อง (Oil ชำรุด ${lastMove.extraSteps} อัน)`
+      : "";
+  return describeOutcome(lastMove) + oilText;
+}
+
+// ข้อความตามผลที่ทำให้การเดินจบ (ไม่รวมส่วนของ Oil)
+function describeOutcome(lastMove) {
   const facingText = getDirectionInfo(lastMove.facingAfterTurn).label;
   if (lastMove.crashed) {
     return `${lastMove.label}: เดินได้ ${lastMove.stepsTaken} ช่อง แล้วตกแมพ! Crash +1 · Robo กลับ Starting Point โดยหันไปทาง${facingText}`;

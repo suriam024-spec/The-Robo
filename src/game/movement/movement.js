@@ -1,5 +1,5 @@
 // M3.1 — ตรรกะการเคลื่อนที่ของ Robo (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
-// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap)
+// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil)
 // R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
@@ -84,7 +84,9 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
     pendingWarp: null, // ต้องให้ผู้เล่นเลือกปลายทางก่อน: { entryUid, row, col, destinations }
     returnedToStart: false, // Hole ไม่มีปลายทาง → กลับ Starting Point
     stoppedBy: null, // ชนิด Obstacle ที่ทำให้ Robo หยุดบนช่อง (เช่น "scrap")
-    damageUid: null, // uid ของ Obstacle ที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
+    extraSteps: 0, // จำนวนก้าวที่ได้เพิ่มจาก The Oil
+    damageUids: [], // uid ของ Obstacle ทั้งหมดที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
+    damageUid: null, // ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
     triggers: [], // Obstacle ที่ "ทำงาน" ระหว่างคำสั่งนี้: [{ uid, typeId, effect }] (ไว้นับ Secret Mission ใน M6)
     ...extra,
   };
@@ -109,6 +111,9 @@ function makeTrigger(obstacle, effect) {
 //       (ระหว่างรอ Robo อยู่บน Hole ที่ก้าวเข้า)
 // - ก้าวเข้าช่องที่มี The Scrap ที่ใช้งานได้ (ผ่านหรือลงพอดี) → หยุดบนช่อง Scrap (ก้าวที่เหลือยกเลิก),
 //   ไม่นับ Crash, ยังหันตามคำสั่ง, Scrap ชำรุดทันที (damageUid) และ stoppedBy = "scrap" (OWNER ตัดสิน S1–S3)
+// - ก้าวเข้าช่องที่มี The Oil ที่ใช้งานได้ (ผ่านหรือลงพอดี) → ไม่หยุด แต่เพิ่มจำนวนก้าวของคำสั่งนี้อีก 1 ก้าว
+//   (extraSteps) Oil ชำรุดทันที ถ้าก้าวที่เพิ่มไปเจอ Oil อีกอันก็เพิ่มอีก และก้าวที่เพิ่มมาเป็นก้าวปกติ
+//   (ตกแมพ/ชน Wall/เจอ Hole/Scrap ได้) (OWNER ตัดสิน O1–O3)
 //   (กติกาของแต่ละชนิดอยู่ในไฟล์ obstacles/types/<ชนิด>.js ลูปนี้แค่ทำตาม "ผล" ที่ทะเบียนตอบกลับ)
 //   นับเฉพาะช่องที่ "ก้าวเข้าไปใหม่" เท่านั้น: Robo ที่ยืนอยู่บน Hole เดิมแล้วสั่งหัน/เดินออก
 //   จะไม่ทำให้ Hole นั้นทำงาน และ Robo ที่วาร์ปมาถึงปลายทางจะไม่วาร์ปซ้ำ
@@ -116,9 +121,13 @@ function makeTrigger(obstacle, effect) {
 // obstacles = รายการ Obstacle บนกระดาน ({ uid, typeId, row, col, damagedTurns, ... })
 //
 // คืนค่า: { robo, crashed, blocked, blockedBy, stepsTaken, facingBefore, facingAfterTurn,
-//           warp, pendingWarp, returnedToStart, stoppedBy, damageUid, triggers }
+//           warp, pendingWarp, returnedToStart, stoppedBy, extraSteps, damageUids, damageUid, triggers }
 //   robo = สถานะ Robo ใหม่ (ไม่แก้ค่าของ robo เดิม)
-//   stepsTaken = จำนวนก้าวที่เดินสำเร็จ (รวมก้าวที่เข้า Hole) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
+//   stepsTaken = จำนวนก้าวที่เดินสำเร็จ (รวมก้าวที่เข้า Hole และก้าวที่ได้เพิ่มจาก Oil) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
+//   extraSteps = จำนวนก้าวที่ได้เพิ่มจาก Oil ทั้งหมดในคำสั่งนี้
+//   damageUids = uid ของ Obstacle ทั้งหมดที่ต้องชำรุดจากคำสั่งนี้ (เรียงตามเวลาที่เกิด)
+//   damageUid = ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
+//   triggers = Obstacle ที่ทำงานทั้งหมดตามลำดับ (Oil หลายอันได้ ตามด้วยผลที่หยุด Robo อีกไม่เกิน 1)
 export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
   const steps = Math.max(0, Math.floor(command.steps));
   const facingAfterTurn = turnFacing(robo.facing, command.turn);
@@ -127,18 +136,32 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
   let row = robo.row;
   let col = robo.col;
   let stepsTaken = 0;
+  let totalSteps = steps; // เพิ่มได้ระหว่างเดิน (The Oil)
+  let extraSteps = 0;
+  const damaged = []; // Obstacle ที่ทำงานแล้วและต้องชำรุด (เช่น Oil ที่ผ่านมา)
+  const triggerLog = []; // Obstacle ที่ทำงานแล้ว (ยังไม่นับผลที่หยุด Robo)
 
-  for (let step = 0; step < steps; step += 1) {
+  // สร้างผลลัพธ์ ณ จุดที่การเดินจบ: รวมสิ่งที่สะสมมา (ชำรุด/triggers/ก้าวเพิ่ม) กับผลของจุดที่หยุด
+  const finish = (nextRobo, extra = {}) => {
+    const { damageUid: ownDamage = null, triggers: ownTriggers = [], ...rest } = extra;
+    const damageUids = ownDamage ? [...damaged, ownDamage] : [...damaged];
+    return createResult(robo, facingAfterTurn, nextRobo, stepsTaken, {
+      ...rest,
+      extraSteps,
+      damageUids,
+      damageUid: damageUids.length > 0 ? damageUids[damageUids.length - 1] : null,
+      triggers: [...triggerLog, ...ownTriggers],
+    });
+  };
+
+  for (let step = 0; step < totalSteps; step += 1) {
     const nextRow = row + delta.row;
     const nextCol = col + delta.col;
 
     if (!isInsideBoard(nextRow, nextCol, boardSize)) {
       const start = getStartPosition(boardSize);
-      return createResult(
-        robo,
-        facingAfterTurn,
+      return finish(
         { row: start.row, col: start.col, facing: facingAfterTurn },
-        stepsTaken,
         { crashed: true },
       );
     }
@@ -155,11 +178,8 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
       });
 
       if (effect?.kind === "block") {
-        return createResult(
-          robo,
-          facingAfterTurn,
+        return finish(
           { row, col, facing: facingAfterTurn },
-          stepsTaken,
           {
             blocked: true,
             blockedBy: effect.blockedBy,
@@ -182,13 +202,19 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
       if (effect) {
         const triggers = [makeTrigger(here, effect.kind)];
 
+        if (effect.kind === "extend") {
+          // ไม่หยุด: เพิ่มก้าวแล้วเดินต่อ (เดินเป็นเส้นตรง จึงไม่วนกลับมาเจอ Oil เดิม)
+          totalSteps += effect.extraSteps;
+          extraSteps += effect.extraSteps;
+          triggerLog.push(...triggers);
+          if (effect.damageUid) damaged.push(effect.damageUid);
+          continue;
+        }
+
         if (effect.kind === "return-to-start") {
           const start = getStartPosition(boardSize);
-          return createResult(
-            robo,
-            facingAfterTurn,
+          return finish(
             { row: start.row, col: start.col, facing: facingAfterTurn },
-            stepsTaken,
             {
               returnedToStart: true,
               damageUid: effect.damageUid ?? null,
@@ -198,11 +224,8 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
         }
 
         if (effect.kind === "stop") {
-          return createResult(
-            robo,
-            facingAfterTurn,
+          return finish(
             { row, col, facing: facingAfterTurn },
-            stepsTaken,
             {
               stoppedBy: here.typeId,
               damageUid: effect.damageUid ?? null,
@@ -212,21 +235,15 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
         }
 
         if (effect.kind === "warp") {
-          return createResult(
-            robo,
-            facingAfterTurn,
+          return finish(
             { row: effect.row, col: effect.col, facing: facingAfterTurn },
-            stepsTaken,
             { warp: effect.warp, damageUid: effect.damageUid, triggers },
           );
         }
 
         if (effect.kind === "choose-warp") {
-          return createResult(
-            robo,
-            facingAfterTurn,
+          return finish(
             { row, col, facing: facingAfterTurn },
-            stepsTaken,
             { pendingWarp: effect.pendingWarp, triggers },
           );
         }
@@ -236,12 +253,7 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
     }
   }
 
-  return createResult(
-    robo,
-    facingAfterTurn,
-    { row, col, facing: facingAfterTurn },
-    stepsTaken,
-  );
+  return finish({ row, col, facing: facingAfterTurn });
 }
 
 // ทำการวาร์ปที่รอผู้เล่นเลือก (pendingWarp จาก applyMovementCommand)

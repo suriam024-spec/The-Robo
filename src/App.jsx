@@ -139,8 +139,13 @@ function App() {
     if (result.crashed) {
       setCrashCount(crashCount + 1)
     }
-    if (result.damageUid) {
-      setPlacedObstacles(damagePlacedObstacle(placedObstacles, result.damageUid))
+    if (result.damageUids.length > 0) {
+      setPlacedObstacles(
+        result.damageUids.reduce(
+          (list, uid) => damagePlacedObstacle(list, uid),
+          placedObstacles,
+        ),
+      )
     }
     setPendingWarp(result.pendingWarp)
     setLastMove({
@@ -151,6 +156,7 @@ function App() {
       blocked: result.blocked,
       returnedToStart: result.returnedToStart,
       stoppedBy: result.stoppedBy,
+      extraSteps: result.extraSteps,
       warp: result.warp,
       pendingWarp: Boolean(result.pendingWarp),
       facingAfterTurn: result.facingAfterTurn,
