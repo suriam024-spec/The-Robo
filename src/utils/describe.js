@@ -41,6 +41,10 @@ function describeOutcome(lastMove) {
   if (lastMove.crashed) {
     return `${lastMove.label}: เดินได้ ${lastMove.stepsTaken} ช่อง แล้วตกแมพ! Crash +1 · Robo กลับ Starting Point โดยหันไปทาง${facingText}`;
   }
+  if (lastMove.destroyed) {
+    const typeName = getObstacleType("destroyer")?.label ?? "Destroyer";
+    return `${lastMove.label}: ก้าวเข้า ${typeName} · เดินได้ ${lastMove.stepsTaken} ช่อง แล้ว Robo พัง! Crash +1 · Robo กลับ Starting Point โดยหันไปทาง${facingText} · ${typeName} ชำรุด`;
+  }
   if (lastMove.blocked) {
     return `${lastMove.label}: ชน Wall · เดินได้ ${lastMove.stepsTaken} ช่อง แล้วหยุด · หันไปทาง${facingText}`;
   }

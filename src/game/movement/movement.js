@@ -1,5 +1,5 @@
 // M3.1 — ตรรกะการเคลื่อนที่ของ Robo (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
-// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil)
+// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil, The Destroyer)
 // R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
@@ -84,6 +84,7 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
     pendingWarp: null, // ต้องให้ผู้เล่นเลือกปลายทางก่อน: { entryUid, row, col, destinations }
     returnedToStart: false, // Hole ไม่มีปลายทาง → กลับ Starting Point
     stoppedBy: null, // ชนิด Obstacle ที่ทำให้ Robo หยุดบนช่อง (เช่น "scrap")
+    destroyed: false, // Robo พังจาก The Destroyer (ผู้เรียกนับ Crash +1 แยกจากตกแมพ: crashed)
     extraSteps: 0, // จำนวนก้าวที่ได้เพิ่มจาก The Oil
     damageUids: [], // uid ของ Obstacle ทั้งหมดที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
     damageUid: null, // ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
@@ -114,6 +115,9 @@ function makeTrigger(obstacle, effect) {
 // - ก้าวเข้าช่องที่มี The Oil ที่ใช้งานได้ (ผ่านหรือลงพอดี) → ไม่หยุด แต่เพิ่มจำนวนก้าวของคำสั่งนี้อีก 1 ก้าว
 //   (extraSteps) Oil ชำรุดทันที ถ้าก้าวที่เพิ่มไปเจอ Oil อีกอันก็เพิ่มอีก และก้าวที่เพิ่มมาเป็นก้าวปกติ
 //   (ตกแมพ/ชน Wall/เจอ Hole/Scrap ได้) (OWNER ตัดสิน O1–O3)
+// - ก้าวเข้าช่องที่มี The Destroyer ที่ใช้งานได้ (ผ่านหรือลงพอดี) → Robo พังทันที (destroyed = true):
+//   หยุดเดิน ก้าวที่เหลือยกเลิก กลับ Starting Point คงทิศ, Destroyer ชำรุดทันที (damageUid)
+//   ผู้เรียกนับ Crash +1 ร่วมกับตกแมพ (OWNER ตัดสิน D1–D4) ส่วนที่ผูกกับ Virus Card ทำใน M4
 //   (กติกาของแต่ละชนิดอยู่ในไฟล์ obstacles/types/<ชนิด>.js ลูปนี้แค่ทำตาม "ผล" ที่ทะเบียนตอบกลับ)
 //   นับเฉพาะช่องที่ "ก้าวเข้าไปใหม่" เท่านั้น: Robo ที่ยืนอยู่บน Hole เดิมแล้วสั่งหัน/เดินออก
 //   จะไม่ทำให้ Hole นั้นทำงาน และ Robo ที่วาร์ปมาถึงปลายทางจะไม่วาร์ปซ้ำ
@@ -121,7 +125,7 @@ function makeTrigger(obstacle, effect) {
 // obstacles = รายการ Obstacle บนกระดาน ({ uid, typeId, row, col, damagedTurns, ... })
 //
 // คืนค่า: { robo, crashed, blocked, blockedBy, stepsTaken, facingBefore, facingAfterTurn,
-//           warp, pendingWarp, returnedToStart, stoppedBy, extraSteps, damageUids, damageUid, triggers }
+//           warp, pendingWarp, returnedToStart, stoppedBy, destroyed, extraSteps, damageUids, damageUid, triggers }
 //   robo = สถานะ Robo ใหม่ (ไม่แก้ค่าของ robo เดิม)
 //   stepsTaken = จำนวนก้าวที่เดินสำเร็จ (รวมก้าวที่เข้า Hole และก้าวที่ได้เพิ่มจาก Oil) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
 //   extraSteps = จำนวนก้าวที่ได้เพิ่มจาก Oil ทั้งหมดในคำสั่งนี้
@@ -143,13 +147,18 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
 
   // สร้างผลลัพธ์ ณ จุดที่การเดินจบ: รวมสิ่งที่สะสมมา (ชำรุด/triggers/ก้าวเพิ่ม) กับผลของจุดที่หยุด
   const finish = (nextRobo, extra = {}) => {
-    const { damageUid: ownDamage = null, triggers: ownTriggers = [], ...rest } = extra;
+    const {
+      damageUid: ownDamage = null,
+      triggers: ownTriggers = [],
+      ...rest
+    } = extra;
     const damageUids = ownDamage ? [...damaged, ownDamage] : [...damaged];
     return createResult(robo, facingAfterTurn, nextRobo, stepsTaken, {
       ...rest,
       extraSteps,
       damageUids,
-      damageUid: damageUids.length > 0 ? damageUids[damageUids.length - 1] : null,
+      damageUid:
+        damageUids.length > 0 ? damageUids[damageUids.length - 1] : null,
       triggers: [...triggerLog, ...ownTriggers],
     });
   };
@@ -217,6 +226,18 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
             { row: start.row, col: start.col, facing: facingAfterTurn },
             {
               returnedToStart: true,
+              damageUid: effect.damageUid ?? null,
+              triggers,
+            },
+          );
+        }
+
+        if (effect.kind === "destroy") {
+          const start = getStartPosition(boardSize);
+          return finish(
+            { row: start.row, col: start.col, facing: facingAfterTurn },
+            {
+              destroyed: true,
               damageUid: effect.damageUid ?? null,
               triggers,
             },

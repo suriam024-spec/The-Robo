@@ -9,6 +9,8 @@
 //   { kind: "block", blockedBy }                       ขวาง (เฉพาะ onBeforeEnter)
 //   { kind: "extend", extraSteps, damageUid }          ไม่หยุด: เพิ่มจำนวนก้าวของคำสั่งนี้ extraSteps ก้าว และให้ damageUid ชำรุด
 //   { kind: "stop", damageUid }                        หยุดบนช่องนั้น (ก้าวที่เหลือยกเลิก) และให้ damageUid ชำรุด
+//   { kind: "destroy", damageUid }                     Robo พังทันที: หยุด กลับ Starting Point คงทิศ และให้ damageUid ชำรุด
+//                                                      (ผู้เรียกนับ Crash +1 เมื่อผลมี destroyed = true)
 //   { kind: "return-to-start", damageUid }             หยุด แล้วกลับ Starting Point (ไม่นับ Crash) และให้ damageUid ชำรุด
 //   { kind: "warp", row, col, warp, damageUid }        หยุด แล้ววาร์ปไป (row, col) และให้ damageUid ชำรุด
 //   { kind: "choose-warp", pendingWarp }               หยุด แล้วรอผู้เล่นเลือกปลายทาง
@@ -16,11 +18,13 @@
 // ชนิดที่ยังไม่ทำจะไม่อยู่ในทะเบียน = ไม่มีผลต่อการเดิน
 
 import { wallBehavior } from "./wall.js";
+import { destroyerBehavior } from "./destroyer.js";
 import { holeBehavior } from "./hole.js";
 import { oilBehavior } from "./oil.js";
 import { scrapBehavior } from "./scrap.js";
 
 const BEHAVIORS = {
+  destroyer: destroyerBehavior,
   wall: wallBehavior,
   hole: holeBehavior,
   oil: oilBehavior,

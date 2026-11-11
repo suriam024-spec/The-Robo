@@ -189,6 +189,27 @@ export const DEV_SCENARIOS = [
       "ข้อความบอกว่าชน Wall และต่อท้ายว่า Oil ทำให้เดินเพิ่ม 1 ช่อง (Oil ชำรุด 1 อัน) Oil แสดงสถานะชำรุด Crash เป็น 0 / 3",
     ],
   },
+  {
+    id: "destroyer",
+    title: "11. The Destroyer ทำให้ Robo พัง",
+    summary: "พังแล้ว Crash +1 กลับ Starting Point และ Destroyer ชำรุด",
+    boardSize: 9,
+    robo: { row: 4, col: 8, facing: "LEFT" },
+    obstacles: [
+      { typeId: "destroyer", row: 4, col: 6 },
+      { typeId: "destroyer", row: 4, col: 2 },
+    ],
+    steps: [
+      "กด Walk++",
+      "กด Walk++ (ครั้งที่สอง)",
+      "กด Turn Around แล้วกด Walk++",
+    ],
+    expect: [
+      "ข้อ 1: Robo เดินได้ 2 ช่องแล้วชน Destroyer ที่ แถว 5 · คอลัมน์ 7 พังทันที (ก้าวที่ 3 ถูกยกเลิก) กลับ Starting Point (แถว 5 · คอลัมน์ 5) ยังหันซ้าย Crash เป็น 1 / 3 ข้อความบอกว่า Robo พัง และ Destroyer ที่ แถว 5 · คอลัมน์ 7 แสดงสถานะชำรุด",
+      "ข้อ 2: Robo เดินได้ 2 ช่องแล้วชน Destroyer อีกอันที่ แถว 5 · คอลัมน์ 3 พังอีกครั้ง กลับ Starting Point Crash เป็น 2 / 3 (นับต่อเนื่อง) และอันนี้ชำรุดด้วย",
+      "ข้อ 3: Robo หันขวาแล้วเดินผ่าน Destroyer ที่ชำรุด (แถว 5 · คอลัมน์ 7) ไปถึง แถว 5 · คอลัมน์ 8 เดินได้ 3 ช่อง ไม่พัง Crash ยังเป็น 2 / 3",
+    ],
+  },
 ];
 
 // แปลงรายการ Obstacle ของสถานการณ์เป็นรูปแบบเดียวกับที่ใช้บนกระดานจริง

@@ -136,7 +136,8 @@ function App() {
 
     const result = applyMovementCommand(robo, command, boardSize, placedObstacles)
     setRobo(result.robo)
-    if (result.crashed) {
+    // ตกแมพ (crashed) และพังจาก Destroyer (destroyed) นับ Crash +1 ร่วมกัน (OWNER ตัดสิน D2)
+    if (result.crashed || result.destroyed) {
       setCrashCount(crashCount + 1)
     }
     if (result.damageUids.length > 0) {
@@ -156,6 +157,7 @@ function App() {
       blocked: result.blocked,
       returnedToStart: result.returnedToStart,
       stoppedBy: result.stoppedBy,
+      destroyed: result.destroyed,
       extraSteps: result.extraSteps,
       warp: result.warp,
       pendingWarp: Boolean(result.pendingWarp),
