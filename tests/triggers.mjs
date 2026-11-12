@@ -2,6 +2,7 @@
 // triggers = รายการ Obstacle ที่ "ทำงาน" ระหว่างคำสั่งหนึ่งคำสั่ง: [{ uid, typeId, effect }]
 // ไว้ให้ Secret Mission ใน M6 นับครั้ง (เช่น Wall Bumper) โดยไม่ต้องแก้ลูปเดินอีก
 // ชุดนี้เทียบเฉพาะรูปแบบและความสอดคล้องของ triggers ไม่เกี่ยวกับกติกาการเดิน (อยู่ใน regression.mjs)
+// (ล็อกไฟล์ครั้งเดียว: ชนิดที่ทำเพิ่มภายหลังมีไฟล์ทดสอบของตัวเอง ไม่ต้องแก้ไฟล์นี้)
 // effect ที่มีตอนนี้: block (Wall), extend (Oil), stop (Scrap), destroy (Destroyer), return-to-start / warp / choose-warp (Hole)
 // Oil ไม่หยุด Robo จึงมีได้หลายรายการต่อคำสั่ง (ตามลำดับ) แล้วตามด้วยผลที่หยุด Robo ได้อีกไม่เกิน 1 รายการ
 
@@ -12,10 +13,27 @@ import {
   createRobo,
 } from "../src/game/movement/movement.js";
 import {
-  OBSTACLE_TYPES,
   placeObstacle,
   damageObstacle,
 } from "../src/game/obstacles/obstacles.js";
+
+// รายชื่อชนิดใน "ตัวสุ่ม" ของ fuzz ถูกล็อกไว้ (ทุกชนิดยกเว้น Spring และ Magnet ซึ่งมีไฟล์ทดสอบของตัวเอง)
+// ชนิดที่ทำเพิ่มภายหลังไม่ต้องแก้ไฟล์นี้ เพราะไม่อยู่ในตัวสุ่ม
+// (เมื่อชนิดของการ์ดอย่าง Booster/Shuffler ฯลฯ ได้พฤติกรรมจริงใน M4/M5 จึงค่อยปรับไฟล์นี้อีกครั้ง)
+const FROZEN_TYPES = [
+  "wall",
+  "oil",
+  "scrap",
+  "hole",
+  "destroyer",
+  "booster",
+  "booster-plus",
+  "shuffler",
+  "reset",
+  "blue-screen",
+  "protect",
+  "support",
+];
 
 let passed = 0;
 function test(name, fn) {
@@ -213,9 +231,9 @@ test("Hole ที่ชำรุด / ยืนบน Hole แล้วเดิ
     [],
   );
   const others = [
-    ob("a", "magnet", 4, 5),
-    ob("b", "spring", 4, 6),
-    ob("c", "booster", 4, 7),
+    ob("a", "booster", 4, 5),
+    ob("b", "shuffler", 4, 6),
+    ob("c", "reset", 4, 7),
   ];
   assert.deepEqual(run(right, "walk-plus-plus", others).triggers, []);
 });
@@ -242,7 +260,6 @@ function makeRng(seed) {
 test("triggers สอดคล้องกับ extraSteps / blocked / returnedToStart / warp / pendingWarp / stoppedBy / destroyed ทุกกรณี", () => {
   const rng = makeRng(424242);
   const pick = (list) => list[Math.floor(rng() * list.length)];
-  const typeIds = OBSTACLE_TYPES.map((t) => t.id);
   const weighted = [
     "wall",
     "wall",
@@ -268,7 +285,7 @@ test("triggers สอดคล้องกับ extraSteps / blocked / returned
     "hole",
     "hole",
     "hole",
-    ...typeIds,
+    ...FROZEN_TYPES,
   ];
   const seen = {
     block: 0,

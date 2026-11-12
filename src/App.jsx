@@ -159,6 +159,8 @@ function App() {
       stoppedBy: result.stoppedBy,
       destroyed: result.destroyed,
       extraSteps: result.extraSteps,
+      retreatSteps: result.retreatSteps,
+      bounces: result.bounces,
       warp: result.warp,
       pendingWarp: Boolean(result.pendingWarp),
       facingAfterTurn: result.facingAfterTurn,

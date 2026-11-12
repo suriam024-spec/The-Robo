@@ -26,13 +26,19 @@ export function describeCell(row, col) {
 
 // สรุปผลการเคลื่อนที่ครั้งล่าสุดเป็นข้อความ
 // ถ้ามี Oil ทำงานระหว่างทาง (extraSteps > 0) จะต่อท้ายว่าเดินเพิ่มกี่ช่อง และ Oil ชำรุดกี่อัน
+// ถ้ามี Spring ทำงาน (bounces) จะต่อท้ายว่า Spring กี่อัน ถอย/ดีด Robo รวมกี่ช่อง และ Spring ชำรุดกี่อัน
 export function describeLastMove(lastMove) {
   if (!lastMove) return "ยังไม่ได้สั่งเคลื่อนที่";
   const oilText =
     lastMove.extraSteps > 0
       ? ` · ก้าวเข้า Oil ทำให้เดินเพิ่ม ${lastMove.extraSteps} ช่อง (Oil ชำรุด ${lastMove.extraSteps} อัน)`
       : "";
-  return describeOutcome(lastMove) + oilText;
+  const springCount = lastMove.bounces?.length ?? 0;
+  const springText =
+    springCount > 0
+      ? ` · Spring ทำงาน ${springCount} อัน ถอย/ดีด Robo รวม ${lastMove.retreatSteps} ช่อง (Spring ชำรุด ${springCount} อัน)`
+      : "";
+  return describeOutcome(lastMove) + oilText + springText;
 }
 
 // ข้อความตามผลที่ทำให้การเดินจบ (ไม่รวมส่วนของ Oil)
@@ -52,7 +58,8 @@ function describeOutcome(lastMove) {
     return `${lastMove.label}: ก้าวเข้า Hole แต่ไม่มีปลายทางที่ใช้ได้ · Robo กลับ Starting Point (ไม่นับ Crash) · Hole ที่ก้าวเข้าชำรุด · หันไปทาง${facingText}`;
   }
   if (lastMove.stoppedBy) {
-    const typeName = getObstacleType(lastMove.stoppedBy)?.label ?? lastMove.stoppedBy;
+    const typeName =
+      getObstacleType(lastMove.stoppedBy)?.label ?? lastMove.stoppedBy;
     return `${lastMove.label}: ก้าวเข้า ${typeName} · เดินได้ ${lastMove.stepsTaken} ช่อง แล้วหยุดบนช่องนั้น · ${typeName} ชำรุด · หันไปทาง${facingText}`;
   }
   if (lastMove.pendingWarp) {

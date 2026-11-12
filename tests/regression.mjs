@@ -17,6 +17,10 @@
 //   fb8974ddb50393a3 = หลังเพิ่ม The Destroyer (D1–D4: ก้าวเข้า Destroyer ที่ใช้งานได้ → พัง กลับ Starting Point คงทิศ ชำรุด 3 Turn)
 //                      เทียบกรณีต่อกรณี 100,000 กรณี: 97,440 กรณีที่ไม่ได้เจอ Destroyer ผลเหมือนเดิมทุกตัวอักษร
 //                      อีก 2,560 กรณีที่พังตรงกับผู้ตรวจอิสระที่ดูเส้นทางที่ Robo ก้าวเข้าจริง
+//   7a2fdbc430753044 = (ล็อกไฟล์ครั้งเดียว ตอนทำ Spring) ตัวสุ่มของ fuzz ใช้เฉพาะชนิดที่เสร็จแล้ว (FROZEN_TYPES) ไม่รวม Spring/Magnet
+//                      รหัสเปลี่ยนเพราะรายชื่อชนิดในตัวสุ่มเปลี่ยน ไม่ใช่เพราะพฤติกรรมเปลี่ยน: ยืนยันแล้วว่าโค้ดก่อน/หลังเขียน
+//                      ลูปเดินใหม่ให้รหัสเดียวกันกับตัวสุ่มชุดนี้ และเทียบผลเต็มทุกฟิลด์ 150,000 กรณีไม่มีความต่าง
+//                      ต่อไปไม่ต้องแก้ไฟล์นี้เมื่อทำชนิดใหม่ (ชนิดใหม่มีไฟล์ทดสอบของตัวเอง)
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -42,8 +46,26 @@ import {
   getHoleDestinations,
 } from "../src/game/obstacles/obstacles.js";
 
+// รายชื่อชนิดใน "ตัวสุ่ม" ของ fuzz ถูกล็อกไว้ (ทุกชนิดยกเว้น Spring และ Magnet ซึ่งมีไฟล์ทดสอบของตัวเอง)
+// ชนิดที่ทำเพิ่มภายหลังไม่ต้องแก้ไฟล์นี้ เพราะไม่อยู่ในตัวสุ่ม
+// (เมื่อชนิดของการ์ดอย่าง Booster/Shuffler ฯลฯ ได้พฤติกรรมจริงใน M4/M5 จึงค่อยปรับไฟล์นี้อีกครั้ง)
+const FROZEN_TYPES = [
+  "wall",
+  "oil",
+  "scrap",
+  "hole",
+  "destroyer",
+  "booster",
+  "booster-plus",
+  "shuffler",
+  "reset",
+  "blue-screen",
+  "protect",
+  "support",
+];
+
 // รหัสสรุปผลของโค้ดปัจจุบัน (แก้ได้เฉพาะเมื่อ OWNER อนุมัติเปลี่ยนกติกา และต้องบันทึกประวัติด้านบน)
-const GOLDEN_FUZZ = "fb8974ddb50393a3";
+const GOLDEN_FUZZ = "7a2fdbc430753044";
 const FUZZ_CASES = 20000;
 
 let passed = 0;
@@ -61,13 +83,27 @@ function test(name, fn) {
 
 const cmd = (id) => MOVEMENT_COMMANDS.find((c) => c.id === id);
 const ob = (uid, typeId, row, col, damagedTurns = 0) => ({
-  uid, typeId, row, col, ownerIndex: 0, damagedTurns,
+  uid,
+  typeId,
+  row,
+  col,
+  ownerIndex: 0,
+  damagedTurns,
 });
 
 // เลือกเฉพาะฟิลด์เดิมของผลลัพธ์ (ไม่รวมฟิลด์ใหม่ที่อาจเพิ่มใน R2)
 const OLD_FIELDS = [
-  "robo", "crashed", "blocked", "blockedBy", "stepsTaken", "facingBefore",
-  "facingAfterTurn", "warp", "pendingWarp", "returnedToStart", "damageUid",
+  "robo",
+  "crashed",
+  "blocked",
+  "blockedBy",
+  "stepsTaken",
+  "facingBefore",
+  "facingAfterTurn",
+  "warp",
+  "pendingWarp",
+  "returnedToStart",
+  "damageUid",
 ];
 const oldFields = (result) =>
   Object.fromEntries(OLD_FIELDS.map((key) => [key, result[key]]));
@@ -81,17 +117,32 @@ test("Movement: เดินปกติ / หัน / ตกแมพ", () => {
   assert.equal(r.stepsTaken, 3);
   r = applyMovementCommand(robo, cmd("turn-right-plus"), 9, []);
   assert.deepEqual(r.robo, { row: 4, col: 5, facing: "RIGHT" });
-  r = applyMovementCommand({ row: 0, col: 4, facing: "UP" }, cmd("walk"), 9, []);
+  r = applyMovementCommand(
+    { row: 0, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [],
+  );
   assert.equal(r.crashed, true);
   assert.deepEqual(r.robo, { row: 4, col: 4, facing: "UP" });
-  r = applyMovementCommand({ row: 1, col: 4, facing: "UP" }, cmd("walk-plus-plus"), 9, []);
+  r = applyMovementCommand(
+    { row: 1, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    [],
+  );
   assert.equal(r.crashed, true);
   assert.equal(r.stepsTaken, 1);
 });
 
 test("Wall: หยุดก่อนถึง Wall ไม่นับ Crash ยังหันตามคำสั่ง", () => {
   const walls = [ob("w", "wall", 2, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus-plus"), 9, walls);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    walls,
+  );
   assert.equal(r.blocked, true);
   assert.equal(r.blockedBy, "wall");
   assert.equal(r.crashed, false);
@@ -101,7 +152,12 @@ test("Wall: หยุดก่อนถึง Wall ไม่นับ Crash ย�
 
 test("Wall: ติดตั้งแต่ก้าวแรก ไม่ขยับแต่หัน", () => {
   const walls = [ob("w", "wall", 4, 5)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("turn-right-plus"), 9, walls);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("turn-right-plus"),
+    9,
+    walls,
+  );
   assert.equal(r.blocked, true);
   assert.equal(r.stepsTaken, 0);
   assert.deepEqual(r.robo, { row: 4, col: 4, facing: "RIGHT" });
@@ -109,7 +165,12 @@ test("Wall: ติดตั้งแต่ก้าวแรก ไม่ขย�
 
 test("Hole: 0 จุดปลายทาง กลับ Starting Point ไม่นับ Crash คงทิศ และ Hole ที่ก้าวเข้าชำรุด (H6)", () => {
   const holes = [ob("h1", "hole", 4, 6)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk-plus-plus"), 9, holes);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk-plus-plus"),
+    9,
+    holes,
+  );
   assert.equal(r.returnedToStart, true);
   assert.equal(r.crashed, false);
   assert.equal(r.stepsTaken, 2);
@@ -119,14 +180,33 @@ test("Hole: 0 จุดปลายทาง กลับ Starting Point ไม�
 
 test("Hole H6: ใบอื่นชำรุดหมดก็กลับ Starting Point + ชำรุดเช่นกัน แล้ว Hole ที่ชำรุดเดินผ่านได้", () => {
   const holes = [ob("h1", "hole", 4, 6), ob("h2", "hole", 0, 0, 2)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk"), 9, holes);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk"),
+    9,
+    holes,
+  );
   assert.equal(r.returnedToStart, false); // ก้าวแรกยังไม่ถึง Hole (4,6)
-  const r2 = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk-plus"), 9, holes);
+  const r2 = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk-plus"),
+    9,
+    holes,
+  );
   assert.equal(r2.returnedToStart, true);
   assert.equal(r2.damageUid, "h1");
-  const afterDamage = damageObstacle(holes, r2.damageUid, getDamageDuration("hole"));
+  const afterDamage = damageObstacle(
+    holes,
+    r2.damageUid,
+    getDamageDuration("hole"),
+  );
   assert.equal(isDamaged(afterDamage[0]), true);
-  const r3 = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk-plus-plus"), 9, afterDamage);
+  const r3 = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk-plus-plus"),
+    9,
+    afterDamage,
+  );
   assert.deepEqual(r3.robo, { row: 4, col: 7, facing: "RIGHT" });
   assert.equal(r3.returnedToStart, false);
   assert.equal(r3.damageUid, null);
@@ -134,7 +214,12 @@ test("Hole H6: ใบอื่นชำรุดหมดก็กลับ Star
 
 test("Scrap: ก้าวเข้ากลางทาง หยุดบนช่อง Scrap ก้าวที่เหลือยกเลิก ไม่นับ Crash ชำรุดทันที", () => {
   const scraps = [ob("s", "scrap", 3, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus-plus"), 9, scraps);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    scraps,
+  );
   assert.deepEqual(r.robo, { row: 3, col: 4, facing: "UP" });
   assert.equal(r.stepsTaken, 1);
   assert.equal(r.stoppedBy, "scrap");
@@ -145,7 +230,12 @@ test("Scrap: ก้าวเข้ากลางทาง หยุดบนช
 
 test("Scrap: เป็นก้าวสุดท้ายพอดี ให้ผลเหมือนกัน (หยุดบน Scrap ชำรุดทันที)", () => {
   const scraps = [ob("s", "scrap", 2, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus"), 9, scraps);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus"),
+    9,
+    scraps,
+  );
   assert.deepEqual(r.robo, { row: 2, col: 4, facing: "UP" });
   assert.equal(r.stepsTaken, 2);
   assert.equal(r.stoppedBy, "scrap");
@@ -154,46 +244,90 @@ test("Scrap: เป็นก้าวสุดท้ายพอดี ให้
 
 test("Scrap: หันก่อนแล้วเดิน ยังหันตามคำสั่งแม้หยุดที่ Scrap", () => {
   const scraps = [ob("s", "scrap", 4, 5)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("turn-right-plus-plus"), 9, scraps);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("turn-right-plus-plus"),
+    9,
+    scraps,
+  );
   assert.deepEqual(r.robo, { row: 4, col: 5, facing: "RIGHT" });
   assert.equal(r.stepsTaken, 1);
 });
 
 test("Scrap ที่ชำรุดไม่ทำงาน / ยืนบน Scrap แล้วเดินออกไม่ทำงานซ้ำ / ครบรอบกลับมาใช้ได้", () => {
   const damaged = [ob("s", "scrap", 3, 4, 1)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus-plus"), 9, damaged);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    damaged,
+  );
   assert.deepEqual(r.robo, { row: 1, col: 4, facing: "UP" });
   assert.equal(r.stoppedBy, null);
   assert.equal(r.damageUid, null);
-  const standing = applyMovementCommand({ row: 3, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("s", "scrap", 3, 4)]);
+  const standing = applyMovementCommand(
+    { row: 3, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("s", "scrap", 3, 4)],
+  );
   assert.deepEqual(standing.robo, { row: 2, col: 4, facing: "UP" });
   assert.equal(standing.stoppedBy, null);
-  const hit = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("s", "scrap", 3, 4)]);
-  let list = damageObstacle([ob("s", "scrap", 3, 4)], hit.damageUid, getDamageDuration("scrap"));
+  const hit = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("s", "scrap", 3, 4)],
+  );
+  let list = damageObstacle(
+    [ob("s", "scrap", 3, 4)],
+    hit.damageUid,
+    getDamageDuration("scrap"),
+  );
   assert.equal(isDamaged(list[0]), true);
   list = tickDamage(list);
   assert.equal(isDamaged(list[0]), false);
-  const again = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, list);
+  const again = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    list,
+  );
   assert.equal(again.stoppedBy, "scrap");
 });
 
 test("Oil: ก้าวเข้ากลางทาง เดินเพิ่ม 1 ก้าวในทิศเดิม และ Oil ชำรุดทันที (O1, O2)", () => {
   const oils = [ob("o", "oil", 3, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, oils);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    oils,
+  );
   assert.deepEqual(r.robo, { row: 2, col: 4, facing: "UP" });
   assert.equal(r.stepsTaken, 2);
   assert.equal(r.extraSteps, 1);
   assert.deepEqual(r.damageUids, ["o"]);
   assert.equal(r.damageUid, "o");
   assert.equal(r.crashed, false);
-  const r2 = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus-plus"), 9, oils);
+  const r2 = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    oils,
+  );
   assert.deepEqual(r2.robo, { row: 0, col: 4, facing: "UP" });
   assert.equal(r2.stepsTaken, 4);
 });
 
 test("Oil: เป็นก้าวสุดท้ายพอดี ก็ยังเดินเพิ่ม 1 ก้าว", () => {
   const oils = [ob("o", "oil", 2, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus"), 9, oils);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus"),
+    9,
+    oils,
+  );
   assert.deepEqual(r.robo, { row: 1, col: 4, facing: "UP" });
   assert.equal(r.stepsTaken, 3);
   assert.equal(r.extraSteps, 1);
@@ -201,7 +335,12 @@ test("Oil: เป็นก้าวสุดท้ายพอดี ก็ย�
 
 test("Oil: ติดกันสองอัน เดินเพิ่มทีละอัน ชำรุดทั้งคู่ (O2)", () => {
   const oils = [ob("o1", "oil", 3, 4), ob("o2", "oil", 2, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, oils);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    oils,
+  );
   assert.deepEqual(r.robo, { row: 1, col: 4, facing: "UP" });
   assert.equal(r.stepsTaken, 3);
   assert.equal(r.extraSteps, 2);
@@ -210,77 +349,146 @@ test("Oil: ติดกันสองอัน เดินเพิ่มท�
 });
 
 test("Oil: ก้าวที่เพิ่มมาเป็นก้าวปกติ — ตกแมพ / ชน Wall / เจอ Scrap / เจอ Hole (O3)", () => {
-  const fall = applyMovementCommand({ row: 1, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("o", "oil", 0, 4)]);
+  const fall = applyMovementCommand(
+    { row: 1, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 0, 4)],
+  );
   assert.equal(fall.crashed, true);
   assert.deepEqual(fall.robo, { row: 4, col: 4, facing: "UP" });
   assert.equal(fall.stepsTaken, 1);
   assert.deepEqual(fall.damageUids, ["o"]);
 
-  const wall = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("o", "oil", 3, 4), ob("w", "wall", 2, 4)]);
+  const wall = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 3, 4), ob("w", "wall", 2, 4)],
+  );
   assert.equal(wall.blocked, true);
   assert.deepEqual(wall.robo, { row: 3, col: 4, facing: "UP" });
   assert.equal(wall.extraSteps, 1);
   assert.deepEqual(wall.damageUids, ["o"]);
 
-  const scrap = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("o", "oil", 3, 4), ob("s", "scrap", 2, 4)]);
+  const scrap = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 3, 4), ob("s", "scrap", 2, 4)],
+  );
   assert.equal(scrap.stoppedBy, "scrap");
   assert.deepEqual(scrap.robo, { row: 2, col: 4, facing: "UP" });
   assert.deepEqual(scrap.damageUids, ["o", "s"]);
   assert.equal(scrap.damageUid, "s");
 
-  const hole = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk"), 9, [ob("o", "oil", 4, 5), ob("h", "hole", 4, 6)]);
+  const hole = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 4, 5), ob("h", "hole", 4, 6)],
+  );
   assert.equal(hole.returnedToStart, true);
   assert.deepEqual(hole.damageUids, ["o", "h"]);
 });
 
 test("Oil: หันก่อนแล้วเดิน / Oil ที่ชำรุดไม่ทำงาน / ยืนบน Oil แล้วเดินออกไม่ทำงานซ้ำ / ครบรอบกลับมาใช้ได้", () => {
-  const turned = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("turn-right-plus"), 9, [ob("o", "oil", 4, 5)]);
+  const turned = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("turn-right-plus"),
+    9,
+    [ob("o", "oil", 4, 5)],
+  );
   assert.deepEqual(turned.robo, { row: 4, col: 6, facing: "RIGHT" });
   assert.equal(turned.stepsTaken, 2);
 
-  const damaged = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("o", "oil", 3, 4, 1)]);
+  const damaged = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 3, 4, 1)],
+  );
   assert.deepEqual(damaged.robo, { row: 3, col: 4, facing: "UP" });
   assert.equal(damaged.extraSteps, 0);
   assert.deepEqual(damaged.damageUids, []);
   assert.equal(damaged.damageUid, null);
 
-  const standing = applyMovementCommand({ row: 3, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("o", "oil", 3, 4)]);
+  const standing = applyMovementCommand(
+    { row: 3, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 3, 4)],
+  );
   assert.deepEqual(standing.robo, { row: 2, col: 4, facing: "UP" });
   assert.equal(standing.extraSteps, 0);
 
-  const hit = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, [ob("o", "oil", 3, 4)]);
-  let list = damageObstacle([ob("o", "oil", 3, 4)], hit.damageUid, getDamageDuration("oil"));
+  const hit = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 3, 4)],
+  );
+  let list = damageObstacle(
+    [ob("o", "oil", 3, 4)],
+    hit.damageUid,
+    getDamageDuration("oil"),
+  );
   assert.equal(isDamaged(list[0]), true);
   list = tickDamage(list);
   assert.equal(isDamaged(list[0]), false);
-  const again = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk"), 9, list);
+  const again = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk"),
+    9,
+    list,
+  );
   assert.equal(again.extraSteps, 1);
 });
 
 test("Destroyer: ก้าวเข้ากลางทางหรือเป็นก้าวสุดท้าย Robo พัง กลับ Starting Point คงทิศ ไม่นับเป็นตกแมพ (D1, D2)", () => {
   const destroyers = [ob("d", "destroyer", 4, 6)];
-  const mid = applyMovementCommand({ row: 4, col: 8, facing: "LEFT" }, cmd("walk-plus-plus"), 9, destroyers);
+  const mid = applyMovementCommand(
+    { row: 4, col: 8, facing: "LEFT" },
+    cmd("walk-plus-plus"),
+    9,
+    destroyers,
+  );
   assert.equal(mid.destroyed, true);
   assert.equal(mid.crashed, false);
   assert.deepEqual(mid.robo, { row: 4, col: 4, facing: "LEFT" });
   assert.equal(mid.stepsTaken, 2);
   assert.equal(mid.damageUid, "d");
   assert.equal(mid.returnedToStart, false);
-  const last = applyMovementCommand({ row: 4, col: 8, facing: "LEFT" }, cmd("walk-plus"), 9, destroyers);
+  const last = applyMovementCommand(
+    { row: 4, col: 8, facing: "LEFT" },
+    cmd("walk-plus"),
+    9,
+    destroyers,
+  );
   assert.equal(last.destroyed, true);
   assert.deepEqual(last.robo, { row: 4, col: 4, facing: "LEFT" });
   assert.equal(last.stepsTaken, 2);
 });
 
 test("Destroyer: หันก่อนแล้วเดิน พังแล้วคงทิศที่หัน (D2)", () => {
-  const r = applyMovementCommand({ row: 4, col: 8, facing: "UP" }, cmd("turn-left-plus"), 9, [ob("d", "destroyer", 4, 7)]);
+  const r = applyMovementCommand(
+    { row: 4, col: 8, facing: "UP" },
+    cmd("turn-left-plus"),
+    9,
+    [ob("d", "destroyer", 4, 7)],
+  );
   assert.equal(r.destroyed, true);
   assert.deepEqual(r.robo, { row: 4, col: 4, facing: "LEFT" });
   assert.equal(r.stepsTaken, 1);
 });
 
 test("Destroyer: Oil ก่อนหน้าทำงานแล้วชำรุด ตามด้วยพัง (damageUids เรียงตามเวลา)", () => {
-  const r = applyMovementCommand({ row: 4, col: 8, facing: "LEFT" }, cmd("walk"), 9, [ob("o", "oil", 4, 7), ob("d", "destroyer", 4, 6)]);
+  const r = applyMovementCommand(
+    { row: 4, col: 8, facing: "LEFT" },
+    cmd("walk"),
+    9,
+    [ob("o", "oil", 4, 7), ob("d", "destroyer", 4, 6)],
+  );
   assert.equal(r.destroyed, true);
   assert.equal(r.extraSteps, 1);
   assert.equal(r.stepsTaken, 2);
@@ -289,29 +497,58 @@ test("Destroyer: Oil ก่อนหน้าทำงานแล้วชำ�
 });
 
 test("Destroyer: ชำรุด 3 Turn ไม่ทำงาน / ยืนบนแล้วเดินออกไม่ทำงานซ้ำ / ครบ 3 รอบกลับมาใช้ได้ (D3, D4)", () => {
-  const damaged = applyMovementCommand({ row: 4, col: 8, facing: "LEFT" }, cmd("walk-plus-plus"), 9, [ob("d", "destroyer", 4, 6, 3)]);
+  const damaged = applyMovementCommand(
+    { row: 4, col: 8, facing: "LEFT" },
+    cmd("walk-plus-plus"),
+    9,
+    [ob("d", "destroyer", 4, 6, 3)],
+  );
   assert.equal(damaged.destroyed, false);
   assert.deepEqual(damaged.robo, { row: 4, col: 5, facing: "LEFT" });
   assert.equal(damaged.damageUid, null);
 
-  const standing = applyMovementCommand({ row: 4, col: 6, facing: "LEFT" }, cmd("walk"), 9, [ob("d", "destroyer", 4, 6)]);
+  const standing = applyMovementCommand(
+    { row: 4, col: 6, facing: "LEFT" },
+    cmd("walk"),
+    9,
+    [ob("d", "destroyer", 4, 6)],
+  );
   assert.equal(standing.destroyed, false);
   assert.deepEqual(standing.robo, { row: 4, col: 5, facing: "LEFT" });
 
-  const hit = applyMovementCommand({ row: 4, col: 8, facing: "LEFT" }, cmd("walk-plus"), 9, [ob("d", "destroyer", 4, 6)]);
-  let list = damageObstacle([ob("d", "destroyer", 4, 6)], hit.damageUid, getDamageDuration("destroyer"));
+  const hit = applyMovementCommand(
+    { row: 4, col: 8, facing: "LEFT" },
+    cmd("walk-plus"),
+    9,
+    [ob("d", "destroyer", 4, 6)],
+  );
+  let list = damageObstacle(
+    [ob("d", "destroyer", 4, 6)],
+    hit.damageUid,
+    getDamageDuration("destroyer"),
+  );
   assert.equal(list[0].damagedTurns, 3);
   list = tickDamage(tickDamage(list));
   assert.equal(isDamaged(list[0]), true); // ผ่านไป 2 รอบ ยังชำรุดอยู่
   list = tickDamage(list);
   assert.equal(isDamaged(list[0]), false); // ครบ 3 รอบ กลับมาใช้ได้
-  const again = applyMovementCommand({ row: 4, col: 8, facing: "LEFT" }, cmd("walk-plus"), 9, list);
+  const again = applyMovementCommand(
+    { row: 4, col: 8, facing: "LEFT" },
+    cmd("walk-plus"),
+    9,
+    list,
+  );
   assert.equal(again.destroyed, true);
 });
 
 test("Hole: 1 จุดปลายทาง วาร์ปอัตโนมัติ คงทิศ ปลายทางชำรุด หยุดเดิน", () => {
   const holes = [ob("h1", "hole", 4, 6), ob("h2", "hole", 0, 0)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk-plus-plus"), 9, holes);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk-plus-plus"),
+    9,
+    holes,
+  );
   assert.deepEqual(r.robo, { row: 0, col: 0, facing: "RIGHT" });
   assert.equal(r.damageUid, "h2");
   assert.equal(r.warp.entryUid, "h1");
@@ -319,16 +556,30 @@ test("Hole: 1 จุดปลายทาง วาร์ปอัตโนม�
   assert.equal(r.pendingWarp, null);
 });
 
-test("Hole: ลงพอดี และ \"ผ่าน\" ให้ผลเหมือนกัน (หยุดทันที)", () => {
+test('Hole: ลงพอดี และ "ผ่าน" ให้ผลเหมือนกัน (หยุดทันที)', () => {
   const holes = [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk-plus-plus"), 9, holes);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk-plus-plus"),
+    9,
+    holes,
+  );
   assert.equal(r.stepsTaken, 1);
   assert.deepEqual(r.robo, { row: 0, col: 0, facing: "RIGHT" });
 });
 
 test("Hole: 2 จุดขึ้นไป รอเลือก แล้ว completeHoleWarp", () => {
-  const holes = [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0), ob("h3", "hole", 8, 8)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk"), 9, holes);
+  const holes = [
+    ob("h1", "hole", 4, 5),
+    ob("h2", "hole", 0, 0),
+    ob("h3", "hole", 8, 8),
+  ];
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk"),
+    9,
+    holes,
+  );
   assert.equal(r.pendingWarp.destinations.length, 2);
   assert.deepEqual(r.robo, { row: 4, col: 5, facing: "RIGHT" });
   const done = completeHoleWarp(r.robo, r.pendingWarp, "h3");
@@ -339,22 +590,46 @@ test("Hole: 2 จุดขึ้นไป รอเลือก แล้ว com
 
 test("Hole ที่ชำรุดไม่ทำงาน และไม่นับเป็นปลายทาง", () => {
   const holes = [ob("h1", "hole", 4, 5, 1), ob("h2", "hole", 0, 0)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk-plus"), 9, holes);
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk-plus"),
+    9,
+    holes,
+  );
   assert.deepEqual(r.robo, { row: 4, col: 6, facing: "RIGHT" });
   const holes2 = [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0, 2)];
-  const r2 = applyMovementCommand({ row: 4, col: 4, facing: "RIGHT" }, cmd("walk"), 9, holes2);
+  const r2 = applyMovementCommand(
+    { row: 4, col: 4, facing: "RIGHT" },
+    cmd("walk"),
+    9,
+    holes2,
+  );
   assert.equal(r2.returnedToStart, true);
 });
 
 test("Hole: Robo ยืนบน Hole แล้วสั่งเดินออก ไม่ทำให้ Hole ทำงาน", () => {
   const holes = [ob("h1", "hole", 4, 5), ob("h2", "hole", 0, 0)];
-  const r = applyMovementCommand({ row: 4, col: 5, facing: "RIGHT" }, cmd("walk"), 9, holes);
+  const r = applyMovementCommand(
+    { row: 4, col: 5, facing: "RIGHT" },
+    cmd("walk"),
+    9,
+    holes,
+  );
   assert.deepEqual(r.robo, { row: 4, col: 6, facing: "RIGHT" });
 });
 
-test("ชนิดที่ยังไม่ทำ (Spring/Booster/Magnet ฯลฯ) ยังไม่มีผลต่อการเดิน", () => {
-  const others = [ob("a", "spring", 3, 4), ob("b", "booster", 2, 4), ob("c", "magnet", 1, 4)];
-  const r = applyMovementCommand({ row: 4, col: 4, facing: "UP" }, cmd("walk-plus-plus"), 9, others);
+test("ชนิดของการ์ดที่ยังไม่ทำ (Booster/Shuffler/Reset) ยังไม่มีผลต่อการเดิน", () => {
+  const others = [
+    ob("a", "booster", 3, 4),
+    ob("b", "shuffler", 2, 4),
+    ob("c", "reset", 1, 4),
+  ];
+  const r = applyMovementCommand(
+    { row: 4, col: 4, facing: "UP" },
+    cmd("walk-plus-plus"),
+    9,
+    others,
+  );
   assert.deepEqual(r.robo, { row: 1, col: 4, facing: "UP" });
   assert.equal(r.stepsTaken, 3);
 });
@@ -374,15 +649,38 @@ test("Obstacles: 14 ชนิด และตัวช่วยชนิด/ร�
   assert.equal(OBSTACLE_TYPES.length, 14);
   assert.equal(getObstacleType("hole").label, "The Hole");
   assert.equal(getObstacleType("nope"), null);
-  const durations = { oil: 1, scrap: 1, hole: 1, magnet: 1, destroyer: 3, spring: 2, wall: 0, booster: 0 };
-  for (const [id, d] of Object.entries(durations)) assert.equal(getDamageDuration(id), d);
+  const durations = {
+    oil: 1,
+    scrap: 1,
+    hole: 1,
+    magnet: 1,
+    destroyer: 3,
+    spring: 2,
+    wall: 0,
+    booster: 0,
+  };
+  for (const [id, d] of Object.entries(durations))
+    assert.equal(getDamageDuration(id), d);
 });
 
 test("Obstacles: แจก (ใช้ randomFn คงที่) และ uid ไม่ซ้ำ", () => {
-  const hands = dealObstacles(2, 9, (() => { let n = 0; return () => (n++ < 3 ? 0.25 : 0); })());
+  const hands = dealObstacles(
+    2,
+    9,
+    (() => {
+      let n = 0;
+      return () => (n++ < 3 ? 0.25 : 0);
+    })(),
+  );
   assert.equal(hands.length, 2);
-  assert.deepEqual(hands[0].map((o) => o.typeId), ["hole", "hole", "hole"]);
-  assert.deepEqual(hands[1].map((o) => o.typeId), ["wall", "wall", "wall"]);
+  assert.deepEqual(
+    hands[0].map((o) => o.typeId),
+    ["hole", "hole", "hole"],
+  );
+  assert.deepEqual(
+    hands[1].map((o) => o.typeId),
+    ["wall", "wall", "wall"],
+  );
   const uids = hands.flat().map((o) => o.uid);
   assert.equal(new Set(uids).size, uids.length);
 });
@@ -396,23 +694,43 @@ test("Obstacles: ข้อห้ามวาง (Start / Locked Zone / ทับ
   assert.equal(canPlaceObstacle(2, 2, 9, []).ok, true);
   const placed = placeObstacle([], { uid: "x", typeId: "wall" }, 0, 0, 9, 1);
   assert.equal(placed.ok, true);
-  assert.deepEqual(placed.placed[0], { uid: "x", typeId: "wall", row: 0, col: 0, ownerIndex: 1, damagedTurns: 0 });
+  assert.deepEqual(placed.placed[0], {
+    uid: "x",
+    typeId: "wall",
+    row: 0,
+    col: 0,
+    ownerIndex: 1,
+    damagedTurns: 0,
+  });
   assert.equal(canPlaceObstacle(0, 0, 9, placed.placed).reason, "OCCUPIED");
-  assert.equal(placeObstacle([], { uid: "y", typeId: "nope" }, 0, 0, 9, 0).reason, "UNKNOWN_TYPE");
+  assert.equal(
+    placeObstacle([], { uid: "y", typeId: "nope" }, 0, 0, 9, 0).reason,
+    "UNKNOWN_TYPE",
+  );
   assert.equal(getObstacleAt(placed.placed, 0, 0).uid, "x");
   assert.equal(getObstacleAt(placed.placed, 1, 1), null);
 });
 
 test("ชำรุด: damage / ไม่ลดระยะที่เหลือ / tick / getHoleDestinations", () => {
-  let list = [ob("h1", "hole", 0, 0), ob("h2", "hole", 0, 1), ob("w", "wall", 1, 1)];
+  let list = [
+    ob("h1", "hole", 0, 0),
+    ob("h2", "hole", 0, 1),
+    ob("w", "wall", 1, 1),
+  ];
   list = damageObstacle(list, "h2", 3);
   assert.equal(isDamaged(list[1]), true);
   list = damageObstacle(list, "h2", 1);
   assert.equal(list[1].damagedTurns, 3);
-  assert.deepEqual(getHoleDestinations(list, "h1").map((o) => o.uid), []);
+  assert.deepEqual(
+    getHoleDestinations(list, "h1").map((o) => o.uid),
+    [],
+  );
   list = tickDamage(tickDamage(tickDamage(list)));
   assert.equal(list[1].damagedTurns, 0);
-  assert.deepEqual(getHoleDestinations(list, "h1").map((o) => o.uid), ["h2"]);
+  assert.deepEqual(
+    getHoleDestinations(list, "h1").map((o) => o.uid),
+    ["h2"],
+  );
   assert.equal(list[2].damagedTurns, 0);
 });
 
@@ -433,8 +751,20 @@ function runFuzz() {
   const rng = makeRng(20261107);
   const pick = (list) => list[Math.floor(rng() * list.length)];
   const hash = createHash("sha256");
-  const typeIds = OBSTACLE_TYPES.map((t) => t.id);
-  const weighted = ["wall", "wall", "wall", "wall", "hole", "hole", "hole", "hole", "hole", "hole", "hole", ...typeIds];
+  const weighted = [
+    "wall",
+    "wall",
+    "wall",
+    "wall",
+    "hole",
+    "hole",
+    "hole",
+    "hole",
+    "hole",
+    "hole",
+    "hole",
+    ...FROZEN_TYPES,
+  ];
   let pendingCount = 0;
   let warpCount = 0;
   let blockedCount = 0;
@@ -456,18 +786,35 @@ function runFuzz() {
     for (let k = 0; k < count; k += 1) {
       const near = rng() < 0.75;
       const row = near
-        ? Math.min(boardSize - 1, Math.max(0, robo.row + Math.floor(rng() * 7) - 3))
+        ? Math.min(
+            boardSize - 1,
+            Math.max(0, robo.row + Math.floor(rng() * 7) - 3),
+          )
         : Math.floor(rng() * boardSize);
       const col = near
-        ? Math.min(boardSize - 1, Math.max(0, robo.col + Math.floor(rng() * 7) - 3))
+        ? Math.min(
+            boardSize - 1,
+            Math.max(0, robo.col + Math.floor(rng() * 7) - 3),
+          )
         : Math.floor(rng() * boardSize);
       const typeId = pick(weighted);
-      const result = placeObstacle(placed, { uid: `u${k}`, typeId }, row, col, boardSize, 0);
+      const result = placeObstacle(
+        placed,
+        { uid: `u${k}`, typeId },
+        row,
+        col,
+        boardSize,
+        0,
+      );
       if (result.ok) {
         placed.length = 0;
         placed.push(...result.placed);
         if (rng() < 0.25) {
-          const damaged = damageObstacle(placed, `u${k}`, 1 + Math.floor(rng() * 3));
+          const damaged = damageObstacle(
+            placed,
+            `u${k}`,
+            1 + Math.floor(rng() * 3),
+          );
           placed.length = 0;
           placed.push(...damaged);
         }
@@ -476,8 +823,19 @@ function runFuzz() {
     const command = pick(MOVEMENT_COMMANDS);
     const before = JSON.stringify(placed);
     const result = applyMovementCommand(robo, command, boardSize, placed);
-    assert.equal(JSON.stringify(placed), before, "ห้ามแก้อาร์เรย์ obstacles เดิม");
-    const record = { boardSize, start, robo, command: command.id, placed, result: oldFields(result) };
+    assert.equal(
+      JSON.stringify(placed),
+      before,
+      "ห้ามแก้อาร์เรย์ obstacles เดิม",
+    );
+    const record = {
+      boardSize,
+      start,
+      robo,
+      command: command.id,
+      placed,
+      result: oldFields(result),
+    };
 
     if (result.pendingWarp) {
       pendingCount += 1;
@@ -493,14 +851,25 @@ function runFuzz() {
   // ฟังก์ชันด้านแจก/วาง/ชำรุดก็รวมในรหัสด้วย
   for (const players of [2, 3, 4, 5, 6]) {
     for (const size of [9, 11, 13]) {
-      hash.update(JSON.stringify(dealObstacles(players, size, makeRng(players * 100 + size))));
+      hash.update(
+        JSON.stringify(
+          dealObstacles(players, size, makeRng(players * 100 + size)),
+        ),
+      );
     }
   }
-  return { digest: hash.digest("hex").slice(0, 16), pendingCount, warpCount, blockedCount };
+  return {
+    digest: hash.digest("hex").slice(0, 16),
+    pendingCount,
+    warpCount,
+    blockedCount,
+  };
 }
 
 const fuzz = runFuzz();
-console.log(`  กรณีสุ่ม ${FUZZ_CASES} | รอเลือกปลายทาง ${fuzz.pendingCount} | วาร์ปอัตโนมัติ ${fuzz.warpCount} | ติด Wall ${fuzz.blockedCount}`);
+console.log(
+  `  กรณีสุ่ม ${FUZZ_CASES} | รอเลือกปลายทาง ${fuzz.pendingCount} | วาร์ปอัตโนมัติ ${fuzz.warpCount} | ติด Wall ${fuzz.blockedCount}`,
+);
 console.log(`  รหัสสรุปผล: ${fuzz.digest}`);
 if (GOLDEN_FUZZ === "__GOLDEN__") {
   console.log("  (ยังไม่ได้ตั้งค่า GOLDEN_FUZZ)");
@@ -510,4 +879,6 @@ if (GOLDEN_FUZZ === "__GOLDEN__") {
   });
 }
 
-console.log(`\nผ่านทั้งหมด ${passed} รายการ${process.exitCode ? " (มีรายการที่ไม่ผ่าน)" : ""}`);
+console.log(
+  `\nผ่านทั้งหมด ${passed} รายการ${process.exitCode ? " (มีรายการที่ไม่ผ่าน)" : ""}`,
+);

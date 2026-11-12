@@ -4,9 +4,13 @@
 // จุดเชื่อม (hook) ที่ชนิดหนึ่งเลือกมีได้:
 //   onBeforeEnter(ctx) — ก่อน Robo ก้าวเข้าช่อง (เช่น Wall)
 //   onEnter(ctx)       — หลัง Robo ก้าวเข้าช่องแล้ว ไม่ว่าผ่านหรือลงพอดี (เช่น Hole)
+//   onLand(ctx)        — เมื่อการเดินช่วงหนึ่งจบลงที่ช่องนั้น และ Robo ก้าวเข้าช่องนั้นในช่วงนี้ (เช่น Spring)
+//                        ctx เพิ่ม chainIndex = จำนวน Spring ที่ทำงานมาก่อนในทอดเดียวกัน
 //   ctx = { obstacle, obstacles, row, col }  (obstacle = ใบที่อยู่ในช่องนั้น)
 // แต่ละ hook คืน null (ไม่มีผล) หรือ "ผล" มาตรฐาน:
 //   { kind: "block", blockedBy }                       ขวาง (เฉพาะ onBeforeEnter)
+//   { kind: "bounce", distance, damageUid }           (เฉพาะ onLand) ถอย/ดีด Robo distance ช่องไปทิศตรงข้ามกับที่เข้ามา
+//                                                      แล้วให้ damageUid ชำรุด (distance = 0 คือแค่ชำรุด ไม่ขยับ)
 //   { kind: "extend", extraSteps, damageUid }          ไม่หยุด: เพิ่มจำนวนก้าวของคำสั่งนี้ extraSteps ก้าว และให้ damageUid ชำรุด
 //   { kind: "stop", damageUid }                        หยุดบนช่องนั้น (ก้าวที่เหลือยกเลิก) และให้ damageUid ชำรุด
 //   { kind: "destroy", damageUid }                     Robo พังทันที: หยุด กลับ Starting Point คงทิศ และให้ damageUid ชำรุด
@@ -22,6 +26,7 @@ import { destroyerBehavior } from "./destroyer.js";
 import { holeBehavior } from "./hole.js";
 import { oilBehavior } from "./oil.js";
 import { scrapBehavior } from "./scrap.js";
+import { springBehavior } from "./spring.js";
 
 const BEHAVIORS = {
   destroyer: destroyerBehavior,
@@ -29,6 +34,7 @@ const BEHAVIORS = {
   hole: holeBehavior,
   oil: oilBehavior,
   scrap: scrapBehavior,
+  spring: springBehavior,
 };
 
 export function getObstacleBehavior(typeId) {

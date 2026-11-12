@@ -1,5 +1,5 @@
 // M3.1 — ตรรกะการเคลื่อนที่ของ Robo (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
-// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil, The Destroyer)
+// M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil, The Destroyer, The Spring)
 // R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
@@ -86,6 +86,8 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
     stoppedBy: null, // ชนิด Obstacle ที่ทำให้ Robo หยุดบนช่อง (เช่น "scrap")
     destroyed: false, // Robo พังจาก The Destroyer (ผู้เรียกนับ Crash +1 แยกจากตกแมพ: crashed)
     extraSteps: 0, // จำนวนก้าวที่ได้เพิ่มจาก The Oil
+    retreatSteps: 0, // จำนวนก้าวที่ The Spring ถอย/ดีด Robo (ไม่รวมใน stepsTaken)
+    bounces: [], // The Spring ที่ทำงาน ตามลำดับ: [{ uid, distance }]
     damageUids: [], // uid ของ Obstacle ทั้งหมดที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
     damageUid: null, // ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
     triggers: [], // Obstacle ที่ "ทำงาน" ระหว่างคำสั่งนี้: [{ uid, typeId, effect }] (ไว้นับ Secret Mission ใน M6)
@@ -111,39 +113,60 @@ function makeTrigger(obstacle, effect) {
 //     · ตั้งแต่ 2 จุด → คืน pendingWarp ให้ผู้เล่นเลือก แล้วเรียก completeHoleWarp ต่อ
 //       (ระหว่างรอ Robo อยู่บน Hole ที่ก้าวเข้า)
 // - ก้าวเข้าช่องที่มี The Scrap ที่ใช้งานได้ (ผ่านหรือลงพอดี) → หยุดบนช่อง Scrap (ก้าวที่เหลือยกเลิก),
-//   ไม่นับ Crash, ยังหันตามคำสั่ง, Scrap ชำรุดทันที (damageUid) และ stoppedBy = "scrap" (OWNER ตัดสิน S1–S3)
+//   ไม่นับ Crash, ยังหันตามคำสั่ง, Scrap ชำรุดทันที (damageUid) และ stoppedBy = "scrap" (OWNER ตัดสิน S1–S3 ของ Scrap)
 // - ก้าวเข้าช่องที่มี The Oil ที่ใช้งานได้ (ผ่านหรือลงพอดี) → ไม่หยุด แต่เพิ่มจำนวนก้าวของคำสั่งนี้อีก 1 ก้าว
 //   (extraSteps) Oil ชำรุดทันที ถ้าก้าวที่เพิ่มไปเจอ Oil อีกอันก็เพิ่มอีก และก้าวที่เพิ่มมาเป็นก้าวปกติ
 //   (ตกแมพ/ชน Wall/เจอ Hole/Scrap ได้) (OWNER ตัดสิน O1–O3)
 // - ก้าวเข้าช่องที่มี The Destroyer ที่ใช้งานได้ (ผ่านหรือลงพอดี) → Robo พังทันที (destroyed = true):
 //   หยุดเดิน ก้าวที่เหลือยกเลิก กลับ Starting Point คงทิศ, Destroyer ชำรุดทันที (damageUid)
 //   ผู้เรียกนับ Crash +1 ร่วมกับตกแมพ (OWNER ตัดสิน D1–D4) ส่วนที่ผูกกับ Virus Card ทำใน M4
+// - การเดินช่วงหนึ่ง (ช่วงหลัก = ตามคำสั่ง) จบลงที่ช่องที่มี The Spring ที่ใช้งานได้ และ Robo ก้าวเข้าช่องนั้นในช่วงนี้
+//   (ลงพอดี หรือหยุดเพราะก้าวต่อไปติด Wall) → Spring ทำงาน: ชำรุดทันที แล้วถอย Robo 2 ช่องไปทิศตรงข้ามกับที่เข้ามา
+//   (Robo ไม่หมุนตัว) การถอยคือการเดินอีกช่วงหนึ่งที่ใช้กติกาเดียวกันทั้งหมด ถ้าการถอยไปจบบน Spring อีกอัน
+//   อันนั้นดีดกลับทิศตรงข้าม 1 ช่อง Spring ถัดไปในทอดเดียวกันลดระยะอีก 1 ต่อหนึ่งอัน (2, 1, 0) (OWNER ตัดสิน S1–S5 ของ Spring)
 //   (กติกาของแต่ละชนิดอยู่ในไฟล์ obstacles/types/<ชนิด>.js ลูปนี้แค่ทำตาม "ผล" ที่ทะเบียนตอบกลับ)
 //   นับเฉพาะช่องที่ "ก้าวเข้าไปใหม่" เท่านั้น: Robo ที่ยืนอยู่บน Hole เดิมแล้วสั่งหัน/เดินออก
 //   จะไม่ทำให้ Hole นั้นทำงาน และ Robo ที่วาร์ปมาถึงปลายทางจะไม่วาร์ปซ้ำ
+//   Obstacle ที่ทำงานแล้วถือว่าชำรุดทันทีตลอดคำสั่งนี้ (เพราะ Spring ทำให้ Robo กลับมาช่องเดิมได้)
 //
 // obstacles = รายการ Obstacle บนกระดาน ({ uid, typeId, row, col, damagedTurns, ... })
 //
 // คืนค่า: { robo, crashed, blocked, blockedBy, stepsTaken, facingBefore, facingAfterTurn,
-//           warp, pendingWarp, returnedToStart, stoppedBy, destroyed, extraSteps, damageUids, damageUid, triggers }
+//           warp, pendingWarp, returnedToStart, stoppedBy, destroyed, extraSteps, retreatSteps, bounces,
+//           damageUids, damageUid, triggers }
 //   robo = สถานะ Robo ใหม่ (ไม่แก้ค่าของ robo เดิม)
-//   stepsTaken = จำนวนก้าวที่เดินสำเร็จ (รวมก้าวที่เข้า Hole และก้าวที่ได้เพิ่มจาก Oil) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
-//   extraSteps = จำนวนก้าวที่ได้เพิ่มจาก Oil ทั้งหมดในคำสั่งนี้
+//   stepsTaken = จำนวนก้าวของการเดินหลัก (รวมก้าวที่เข้า Hole และก้าวที่ได้เพิ่มจาก Oil) ก่อนตกแมพ/ถูกขวาง/วาร์ป/ครบคำสั่ง
+//   extraSteps = จำนวนก้าวที่ได้เพิ่มจาก Oil ทั้งหมดในคำสั่งนี้ (รวมช่วงที่ Spring ถอย)
+//   retreatSteps = จำนวนก้าวที่ Spring ถอย/ดีด (รวมทุกช่วง)
+//   bounces = Spring ที่ทำงาน ตามลำดับ [{ uid, distance }]
 //   damageUids = uid ของ Obstacle ทั้งหมดที่ต้องชำรุดจากคำสั่งนี้ (เรียงตามเวลาที่เกิด)
 //   damageUid = ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
-//   triggers = Obstacle ที่ทำงานทั้งหมดตามลำดับ (Oil หลายอันได้ ตามด้วยผลที่หยุด Robo อีกไม่เกิน 1)
+//   triggers = Obstacle ที่ทำงานทั้งหมดตามลำดับ (Oil/Spring ได้หลายรายการ ตามด้วยผลที่หยุด Robo)
 export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
   const steps = Math.max(0, Math.floor(command.steps));
   const facingAfterTurn = turnFacing(robo.facing, command.turn);
-  const delta = FACING_DELTAS[facingAfterTurn];
+  const forward = FACING_DELTAS[facingAfterTurn];
 
   let row = robo.row;
   let col = robo.col;
-  let stepsTaken = 0;
-  let totalSteps = steps; // เพิ่มได้ระหว่างเดิน (The Oil)
+  let stepsTaken = 0; // ก้าวของการเดินหลัก
+  let retreatSteps = 0; // ก้าวที่ Spring ถอย/ดีด
   let extraSteps = 0;
-  const damaged = []; // Obstacle ที่ทำงานแล้วและต้องชำรุด (เช่น Oil ที่ผ่านมา)
+  let blockedBy = null;
+  const damaged = []; // Obstacle ที่ทำงานแล้วและต้องชำรุด (เรียงตามเวลา)
   const triggerLog = []; // Obstacle ที่ทำงานแล้ว (ยังไม่นับผลที่หยุด Robo)
+  const bounces = [];
+  const worked = new Set(); // uid ของ Obstacle ที่ทำงานแล้วในคำสั่งนี้ → ถือว่าชำรุดต่อไปตลอดคำสั่ง
+
+  // รายการ Obstacle ณ ตอนนี้: ตัวที่ทำงานไปแล้วในคำสั่งนี้ถือว่าชำรุด
+  const liveObstacles = () =>
+    worked.size === 0
+      ? obstacles
+      : obstacles.map((item) =>
+          worked.has(item.uid)
+            ? { ...item, damagedTurns: Math.max(item.damagedTurns ?? 0, 1) }
+            : item,
+        );
 
   // สร้างผลลัพธ์ ณ จุดที่การเดินจบ: รวมสิ่งที่สะสมมา (ชำรุด/triggers/ก้าวเพิ่ม) กับผลของจุดที่หยุด
   const finish = (nextRobo, extra = {}) => {
@@ -155,7 +178,11 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
     const damageUids = ownDamage ? [...damaged, ownDamage] : [...damaged];
     return createResult(robo, facingAfterTurn, nextRobo, stepsTaken, {
       ...rest,
+      blocked: blockedBy !== null,
+      blockedBy,
       extraSteps,
+      retreatSteps,
+      bounces: [...bounces],
       damageUids,
       damageUid:
         damageUids.length > 0 ? damageUids[damageUids.length - 1] : null,
@@ -163,118 +190,183 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
     });
   };
 
-  for (let step = 0; step < totalSteps; step += 1) {
-    const nextRow = row + delta.row;
-    const nextCol = col + delta.col;
+  // เดิน count ก้าวไปตามทิศ delta (ช่วงหลักหรือช่วงที่ Spring ถอย/ดีด)
+  // คืน { result } เมื่อเกิดผลที่จบทั้งคำสั่ง (ตกแมพ/พัง/หยุด/วาร์ป ฯลฯ)
+  // ไม่เช่นนั้นคืน { result: null, taken } เมื่อช่วงนี้จบตามปกติ (ครบก้าวหรือติด Wall) taken = ก้าวที่เดินได้ในช่วงนี้
+  const runSegment = (delta, count, isPrimary) => {
+    let totalSteps = count; // เพิ่มได้ระหว่างเดิน (The Oil)
+    let taken = 0;
 
-    if (!isInsideBoard(nextRow, nextCol, boardSize)) {
-      const start = getStartPosition(boardSize);
-      return finish(
-        { row: start.row, col: start.col, facing: facingAfterTurn },
-        { crashed: true },
-      );
+    for (let step = 0; step < totalSteps; step += 1) {
+      const nextRow = row + delta.row;
+      const nextCol = col + delta.col;
+
+      if (!isInsideBoard(nextRow, nextCol, boardSize)) {
+        const start = getStartPosition(boardSize);
+        return {
+          result: finish(
+            { row: start.row, col: start.col, facing: facingAfterTurn },
+            { crashed: true },
+          ),
+        };
+      }
+
+      const field = liveObstacles();
+      const here = getObstacleAt(field, nextRow, nextCol);
+      const behavior = here ? getObstacleBehavior(here.typeId) : null;
+
+      if (behavior?.onBeforeEnter) {
+        const effect = behavior.onBeforeEnter({
+          obstacle: here,
+          obstacles: field,
+          row: nextRow,
+          col: nextCol,
+        });
+
+        if (effect?.kind === "block") {
+          blockedBy = blockedBy ?? effect.blockedBy;
+          triggerLog.push(makeTrigger(here, effect.kind));
+          return { result: null, taken };
+        }
+        if (effect) {
+          throw new Error(`Unsupported onBeforeEnter effect: ${effect.kind}`);
+        }
+      }
+
+      row = nextRow;
+      col = nextCol;
+      if (isPrimary) stepsTaken += 1;
+      else retreatSteps += 1;
+      taken += 1;
+
+      if (behavior?.onEnter) {
+        const effect = behavior.onEnter({
+          obstacle: here,
+          obstacles: field,
+          row,
+          col,
+        });
+
+        if (effect) {
+          const triggers = [makeTrigger(here, effect.kind)];
+
+          if (effect.kind === "extend") {
+            // ไม่หยุด: เพิ่มก้าวแล้วเดินต่อ
+            totalSteps += effect.extraSteps;
+            extraSteps += effect.extraSteps;
+            triggerLog.push(...triggers);
+            if (effect.damageUid) {
+              damaged.push(effect.damageUid);
+              worked.add(effect.damageUid);
+            }
+            continue;
+          }
+
+          if (effect.kind === "return-to-start") {
+            const start = getStartPosition(boardSize);
+            return {
+              result: finish(
+                { row: start.row, col: start.col, facing: facingAfterTurn },
+                {
+                  returnedToStart: true,
+                  damageUid: effect.damageUid ?? null,
+                  triggers,
+                },
+              ),
+            };
+          }
+
+          if (effect.kind === "destroy") {
+            const start = getStartPosition(boardSize);
+            return {
+              result: finish(
+                { row: start.row, col: start.col, facing: facingAfterTurn },
+                {
+                  destroyed: true,
+                  damageUid: effect.damageUid ?? null,
+                  triggers,
+                },
+              ),
+            };
+          }
+
+          if (effect.kind === "stop") {
+            return {
+              result: finish(
+                { row, col, facing: facingAfterTurn },
+                {
+                  stoppedBy: here.typeId,
+                  damageUid: effect.damageUid ?? null,
+                  triggers,
+                },
+              ),
+            };
+          }
+
+          if (effect.kind === "warp") {
+            return {
+              result: finish(
+                { row: effect.row, col: effect.col, facing: facingAfterTurn },
+                { warp: effect.warp, damageUid: effect.damageUid, triggers },
+              ),
+            };
+          }
+
+          if (effect.kind === "choose-warp") {
+            return {
+              result: finish(
+                { row, col, facing: facingAfterTurn },
+                { pendingWarp: effect.pendingWarp, triggers },
+              ),
+            };
+          }
+
+          throw new Error(`Unsupported onEnter effect: ${effect.kind}`);
+        }
+      }
     }
 
-    const here = getObstacleAt(obstacles, nextRow, nextCol);
+    return { result: null, taken };
+  };
+
+  let delta = forward;
+  let chainIndex = 0; // จำนวน Spring ที่ทำงานมาแล้วในทอดนี้
+  let segment = runSegment(forward, steps, true);
+
+  // เมื่อการเดินช่วงหนึ่งจบลง ตรวจว่า Robo ลงพอดีบนช่องที่มี onLand (Spring) หรือไม่
+  // ถ้ามี → ทำงาน แล้วเดินอีกช่วงไปทิศตรงข้าม จนกว่าจะไม่มี Spring ให้ทำงานต่อ
+  while (segment.result === null && segment.taken > 0) {
+    const field = liveObstacles();
+    const here = getObstacleAt(field, row, col);
     const behavior = here ? getObstacleBehavior(here.typeId) : null;
+    if (!behavior?.onLand) break;
 
-    if (behavior?.onBeforeEnter) {
-      const effect = behavior.onBeforeEnter({
-        obstacle: here,
-        obstacles,
-        row: nextRow,
-        col: nextCol,
-      });
-
-      if (effect?.kind === "block") {
-        return finish(
-          { row, col, facing: facingAfterTurn },
-          {
-            blocked: true,
-            blockedBy: effect.blockedBy,
-            triggers: [makeTrigger(here, effect.kind)],
-          },
-        );
-      }
-      if (effect) {
-        throw new Error(`Unsupported onBeforeEnter effect: ${effect.kind}`);
-      }
+    const effect = behavior.onLand({
+      obstacle: here,
+      obstacles: field,
+      row,
+      col,
+      chainIndex,
+    });
+    if (!effect) break;
+    if (effect.kind !== "bounce") {
+      throw new Error(`Unsupported onLand effect: ${effect.kind}`);
     }
 
-    row = nextRow;
-    col = nextCol;
-    stepsTaken += 1;
-
-    if (behavior?.onEnter) {
-      const effect = behavior.onEnter({ obstacle: here, obstacles, row, col });
-
-      if (effect) {
-        const triggers = [makeTrigger(here, effect.kind)];
-
-        if (effect.kind === "extend") {
-          // ไม่หยุด: เพิ่มก้าวแล้วเดินต่อ (เดินเป็นเส้นตรง จึงไม่วนกลับมาเจอ Oil เดิม)
-          totalSteps += effect.extraSteps;
-          extraSteps += effect.extraSteps;
-          triggerLog.push(...triggers);
-          if (effect.damageUid) damaged.push(effect.damageUid);
-          continue;
-        }
-
-        if (effect.kind === "return-to-start") {
-          const start = getStartPosition(boardSize);
-          return finish(
-            { row: start.row, col: start.col, facing: facingAfterTurn },
-            {
-              returnedToStart: true,
-              damageUid: effect.damageUid ?? null,
-              triggers,
-            },
-          );
-        }
-
-        if (effect.kind === "destroy") {
-          const start = getStartPosition(boardSize);
-          return finish(
-            { row: start.row, col: start.col, facing: facingAfterTurn },
-            {
-              destroyed: true,
-              damageUid: effect.damageUid ?? null,
-              triggers,
-            },
-          );
-        }
-
-        if (effect.kind === "stop") {
-          return finish(
-            { row, col, facing: facingAfterTurn },
-            {
-              stoppedBy: here.typeId,
-              damageUid: effect.damageUid ?? null,
-              triggers,
-            },
-          );
-        }
-
-        if (effect.kind === "warp") {
-          return finish(
-            { row: effect.row, col: effect.col, facing: facingAfterTurn },
-            { warp: effect.warp, damageUid: effect.damageUid, triggers },
-          );
-        }
-
-        if (effect.kind === "choose-warp") {
-          return finish(
-            { row, col, facing: facingAfterTurn },
-            { pendingWarp: effect.pendingWarp, triggers },
-          );
-        }
-
-        throw new Error(`Unsupported onEnter effect: ${effect.kind}`);
-      }
+    triggerLog.push(makeTrigger(here, effect.kind));
+    bounces.push({ uid: here.uid, distance: effect.distance });
+    if (effect.damageUid) {
+      damaged.push(effect.damageUid);
+      worked.add(effect.damageUid);
     }
+    if (effect.distance <= 0) break;
+
+    delta = { row: -delta.row, col: -delta.col };
+    chainIndex += 1;
+    segment = runSegment(delta, effect.distance, false);
   }
 
-  return finish({ row, col, facing: facingAfterTurn });
+  return segment.result ?? finish({ row, col, facing: facingAfterTurn });
 }
 
 // ทำการวาร์ปที่รอผู้เล่นเลือก (pendingWarp จาก applyMovementCommand)
