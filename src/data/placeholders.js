@@ -1,16 +1,6 @@
-// ข้อมูลทดสอบชั่วคราว (Placeholder) ของการ์ด — ยังไม่มีระบบทำงานจริงของการ์ด
-// ไฟล์นี้จะถูกแทนที่ด้วยระบบการ์ดจริงใน M4
-
-const MOVEMENT_PLACEHOLDERS = [
-  "Walk",
-  "Walk+",
-  "Walk++",
-  "Turn Left",
-  "Turn Left+",
-  "Turn Right",
-  "Turn Right+",
-  "Turn Around",
-];
+// ข้อมูลทดสอบชั่วคราว (Placeholder) ของ Virus Card และ Secret Mission — ยังไม่มีระบบทำงานจริง
+// Movement Cards ใช้ระบบจริงแล้ว (M4.1: src/game/cards/) จึงตัดออกจากไฟล์นี้
+// ส่วน Virus Cards จะถูกแทนที่ใน M4.2 และ Secret Mission ใน M6
 
 const VIRUS_PLACEHOLDERS = [
   "ขาหัก",
@@ -37,10 +27,9 @@ function pickCycle(pool, start, count) {
   );
 }
 
-// แจกการ์ดทดสอบให้ผู้เล่นลำดับที่ playerIndex (Movement 4 ใบ, Virus 2 ใบ, Secret Mission 1 ใบ)
+// แจกการ์ดทดสอบให้ผู้เล่นลำดับที่ playerIndex (Virus 2 ใบ, Secret Mission 1 ใบ)
 export function dealPlaceholders(playerIndex) {
   return {
-    movementCards: pickCycle(MOVEMENT_PLACEHOLDERS, playerIndex * 2, 4),
     virusCards: pickCycle(VIRUS_PLACEHOLDERS, playerIndex * 2, 2),
     mission: MISSION_PLACEHOLDERS[playerIndex % MISSION_PLACEHOLDERS.length],
   };

@@ -1,5 +1,8 @@
-// M2: แผงตาของผู้เล่น (เริ่มตา / เปิด-ซ่อน Hand และ Secret Mission / แผงทดสอบการเดิน / จบตา)
-import MovementTestPanel from '../Robo/MovementTestPanel.jsx'
+// M2: แผงตาของผู้เล่น (เริ่มตา / เปิด-ซ่อน Hand และ Secret Mission / จบตา)
+// M4.1: Hand แสดง Movement Cards จริง กดเล่นได้ 1 ใบต่อตา + แสดงผลการเดินและกล่องเลือกปลายทาง Hole (แทนแผงทดสอบเดิม)
+import { CRASH_LIMIT } from '../../data/constants.js'
+import { MOVEMENT_HAND_SIZE, getCardCommand } from '../../game/cards/movementCards.js'
+import { describeCell, describeCommand, describeLastMove } from '../../utils/describe.js'
 
 function TurnPanel({
   players,
@@ -12,15 +15,21 @@ function TurnPanel({
   crashCount,
   lastMove,
   pendingWarp,
+  hand,
+  drawCount,
+  discardCount,
+  cardPlayed,
+  cardLog,
   onStartTurn,
   onToggleHand,
   onToggleMission,
-  onMove,
+  onPlayCard,
   onChooseWarp,
   onEndTurn,
   onResetGame,
 }) {
   const currentPlayer = players[currentIndex]
+  const isChoosingWarp = Boolean(pendingWarp)
 
   return (
     <section className="turn-panel" aria-labelledby="turn-title">
@@ -75,22 +84,45 @@ function TurnPanel({
             </button>
           </div>
 
+          <p className="private-note" aria-live="polite">
+            กองจั่ว {drawCount} ใบ · กองทิ้ง {discardCount} ใบ
+            {cardLog ? ` · ล่าสุด: ${cardLog}` : ''}
+          </p>
+
           {handOpen && (
             <div className="private-card hand-card">
               <div className="private-card-title">
-                HAND <span>· ข้อมูลทดสอบชั่วคราว</span>
+                HAND <span>· เห็นได้เฉพาะ {currentPlayer.name}</span>
               </div>
 
-              <div className="card-group-label">Movement Cards (4)</div>
-              <ul className="card-row">
-                {currentPlayer.movementCards.map((card, index) => (
-                  <li className="game-card movement-card" key={`${card}-${index}`}>
-                    {card}
-                  </li>
-                ))}
-              </ul>
+              <div className="card-group-label">
+                Movement Cards ({hand.length}){cardPlayed ? ' · ใช้การ์ดตานี้แล้ว' : ' · กดการ์ดเพื่อเล่น (ตาละ 1 ใบ)'}
+              </div>
+              {hand.length === 0 ? (
+                <p className="private-note">
+                  มือว่าง จะเติมให้ครบ {MOVEMENT_HAND_SIZE} ใบเมื่อจบตา
+                </p>
+              ) : (
+                <div className="test-command-grid">
+                  {hand.map((card) => {
+                    const command = getCardCommand(card)
+                    return (
+                      <button
+                        className="test-command-button"
+                        key={card.uid}
+                        type="button"
+                        disabled={cardPlayed || isChoosingWarp || !command}
+                        onClick={() => onPlayCard(card.uid)}
+                      >
+                        <span className="test-command-name">{command ? command.label : card.typeId}</span>
+                        <span className="test-command-desc">{command ? describeCommand(command) : ''}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
 
-              <div className="card-group-label">Virus Cards (2)</div>
+              <div className="card-group-label">Virus Cards (2) · ข้อมูลทดสอบชั่วคราว</div>
               <ul className="card-row">
                 {currentPlayer.virusCards.map((card, index) => (
                   <li className="game-card virus-card" key={`${card}-${index}`}>
@@ -111,21 +143,46 @@ function TurnPanel({
             </div>
           )}
 
-          <MovementTestPanel
-            crashCount={crashCount}
-            lastMove={lastMove}
-            pendingWarp={pendingWarp}
-            onMove={onMove}
-            onChooseWarp={onChooseWarp}
-          />
+          <div className="private-card">
+            <div className="private-card-title">ผลการเคลื่อนที่</div>
+
+            <div className="crash-counter" aria-live="polite">
+              <span className="crash-label">CRASH</span>
+              <strong>{crashCount} / {CRASH_LIMIT}</strong>
+              <span className="crash-note">แสดงผลอย่างเดียว</span>
+            </div>
+
+            {isChoosingWarp && (
+              <div className="warp-chooser" role="group" aria-label="เลือกปลายทางของ The Hole">
+                <p className="warp-note">
+                  Robo ก้าวเข้า The Hole ที่ {describeCell(pendingWarp.row, pendingWarp.col)}
+                  เลือกปลายทางที่จะวาร์ปไป (ช่องที่เลือกได้ถูกไฮไลต์บนกระดาน)
+                </p>
+                <div className="warp-choice-list">
+                  {pendingWarp.destinations.map((item) => (
+                    <button
+                      className="warp-choice-button"
+                      key={item.uid}
+                      type="button"
+                      onClick={() => onChooseWarp(item.uid)}
+                    >
+                      Hole ที่ {describeCell(item.row, item.col)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="test-result" aria-live="polite">{describeLastMove(lastMove)}</p>
+          </div>
 
           <button
             className="primary-button end-turn-button"
             type="button"
-            disabled={Boolean(pendingWarp)}
+            disabled={isChoosingWarp}
             onClick={onEndTurn}
           >
-            {pendingWarp ? 'เลือกปลายทาง Hole ก่อนจบตา' : 'จบตา · ส่งต่อผู้เล่นถัดไป'}
+            {isChoosingWarp ? 'เลือกปลายทาง Hole ก่อนจบตา' : 'จบตา · ส่งต่อผู้เล่นถัดไป'}
           </button>
         </div>
       )}

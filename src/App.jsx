@@ -2,6 +2,7 @@ import { useState } from 'react'
 import './styles/main.css'
 import Board from './components/Board/Board.jsx'
 import BoardSizePanel from './components/Board/BoardSizePanel.jsx'
+import CardCountsPanel from './components/Cards/CardCountsPanel.jsx'
 import DevScenarioBanner from './components/Dev/DevScenarioBanner.jsx'
 import DevScenarioPanel from './components/Dev/DevScenarioPanel.jsx'
 import HandoffScreen from './components/HandoffScreen/HandoffScreen.jsx'
@@ -19,10 +20,9 @@ import {
   MIN_PLAYERS,
   TURN_DIRECTIONS,
 } from './data/constants.js'
-import { DEV_SCENARIOS, buildScenarioObstacles } from './data/devScenarios.js'
+import { DEV_SCENARIOS, buildScenarioCardState, buildScenarioObstacles } from './data/devScenarios.js'
 import { dealPlaceholders } from './data/placeholders.js'
 import {
-  MOVEMENT_COMMANDS,
   applyMovementCommand,
   createRobo,
   finishHoleWarp,
@@ -36,8 +36,41 @@ import {
   placeObstacle,
   tickDamage,
 } from './game/obstacles/obstacles.js'
+import {
+  DEFAULT_MOVEMENT_COUNTS,
+  MOVEMENT_HAND_SIZE,
+  buildMovementDeck,
+  canDealMovement,
+  getCardCommand,
+  validateMovementCounts,
+} from './game/cards/movementCards.js'
+import { createCardState, playCard, refillHand } from './game/cards/deck.js'
 import { createDefaultSetupPlayers, getNextIndex, getTurnOrder } from './game/players.js'
 import { getDirectionInfo } from './utils/describe.js'
+
+// จำค่าจำนวนการ์ด Movement ที่ตั้งไว้ในเบราว์เซอร์นี้ (ถ้าอ่านไม่ได้หรือค่าไม่ผ่านการตรวจ ใช้ค่าเริ่มต้น)
+const COUNTS_STORAGE_KEY = 'therobo.movementCounts.v1'
+
+function loadMovementCounts() {
+  try {
+    const raw = window.localStorage.getItem(COUNTS_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (validateMovementCounts(parsed).ok) return parsed
+    }
+  } catch {
+    // อ่านไม่ได้ → ใช้ค่าเริ่มต้น
+  }
+  return { ...DEFAULT_MOVEMENT_COUNTS }
+}
+
+function saveMovementCounts(counts) {
+  try {
+    window.localStorage.setItem(COUNTS_STORAGE_KEY, JSON.stringify(counts))
+  } catch {
+    // เก็บไม่ได้ก็ใช้ต่อได้ แค่ไม่ถูกจำไว้
+  }
+}
 
 function App() {
   // phase: 'setup' | 'direction' | 'obstacle-handoff' | 'obstacle' | 'board' | 'handoff'
@@ -61,6 +94,12 @@ function App() {
   const [crashCount, setCrashCount] = useState(0)
   const [lastMove, setLastMove] = useState(null)
   const [pendingWarp, setPendingWarp] = useState(null) // รอผู้เล่นเลือกปลายทางของ The Hole (M3.3)
+
+  // Movement Cards (M4.1): จำนวนต่อชนิดที่ตั้งจากหน้า Setup, สถานะกอง/มือ, เล่นการ์ดตานี้แล้วหรือยัง, ข้อความเหตุการณ์ล่าสุด
+  const [movementCounts, setMovementCounts] = useState(loadMovementCounts)
+  const [cardState, setCardState] = useState(null) // { drawPile, discardPile, hands } (null ก่อนเริ่มเกม)
+  const [cardPlayed, setCardPlayed] = useState(false)
+  const [cardLog, setCardLog] = useState('')
 
   // Obstacle Setup (M3.2)
   const [obstacleHands, setObstacleHands] = useState([]) // มือที่เหลือของผู้เล่นแต่ละคน
@@ -114,11 +153,29 @@ function App() {
     )
   }
 
+  function handleChangeCardCount(typeId, value) {
+    const next = { ...movementCounts, [typeId]: value }
+    setMovementCounts(next)
+    if (validateMovementCounts(next).ok) saveMovementCounts(next)
+  }
+
+  function handleResetCardCounts() {
+    const next = { ...DEFAULT_MOVEMENT_COUNTS }
+    setMovementCounts(next)
+    saveMovementCounts(next)
+  }
+
   function resetRobo() {
     setRobo(createRobo(boardSize, direction))
     setCrashCount(0)
     setLastMove(null)
     setPendingWarp(null)
+  }
+
+  function resetCards() {
+    setCardState(null)
+    setCardPlayed(false)
+    setCardLog('')
   }
 
   // ทำให้ Obstacle uid นี้ชำรุดตามระยะของชนิดมัน (ถ้าชนิดนั้นไม่มีระบบชำรุด จะไม่เปลี่ยนอะไร)
@@ -128,12 +185,8 @@ function App() {
     return damageObstacle(obstacles, uid, getDamageDuration(target.typeId))
   }
 
-  function handleMove(commandId) {
-    const command = MOVEMENT_COMMANDS.find((item) => item.id === commandId)
-    if (!command) return
-
-    if (pendingWarp) return // ต้องเลือกปลายทางของ Hole ให้เสร็จก่อน
-
+  // เดิน Robo ตามคำสั่งของการ์ดที่เล่น (ตรรกะการเดินเป็นของเดิมทั้งหมด)
+  function runMovement(command) {
     const result = applyMovementCommand(robo, command, boardSize, placedObstacles)
     setRobo(result.robo)
     // ตกแมพ (crashed) และพังจาก Destroyer (destroyed) นับ Crash +1 ร่วมกัน (OWNER ตัดสิน D2)
@@ -166,6 +219,20 @@ function App() {
       magnetEvents: result.magnetEvents,
       facingAfterTurn: result.facingAfterTurn,
     })
+  }
+
+  // เล่นการ์ด Movement จากมือผู้เล่นปัจจุบัน: การ์ดไปกองทิ้ง แล้วเดินตามคำสั่งของการ์ด (ตาละ 1 ใบ)
+  function handlePlayCard(cardUid) {
+    if (!cardState || pendingWarp || cardPlayed) return // ต้องเลือกปลายทางของ Hole ให้เสร็จก่อน / เล่นได้ตาละ 1 ใบ
+
+    const card = cardState.hands[currentIndex].find((item) => item.uid === cardUid)
+    const command = card ? getCardCommand(card) : null
+    if (!command) return
+
+    const played = playCard(cardState, currentIndex, cardUid)
+    setCardState(played.state)
+    setCardPlayed(true)
+    runMovement(command)
   }
 
   function handleChooseWarp(destinationUid) {
@@ -266,6 +333,8 @@ function App() {
   }
 
   function handleStartGame() {
+    if (!canDealMovement(movementCounts, setupPlayers.length).ok) return // การ์ดไม่พอแจก (หน้า Setup แจ้งเตือนอยู่แล้ว)
+
     const readyPlayers = setupPlayers.map((player, index) => ({
       id: player.id,
       name: player.name.trim() || `Player ${index + 1}`,
@@ -276,6 +345,9 @@ function App() {
     resetRobo()
     resetObstacles()
     setActiveScenario(null)
+    setCardState(createCardState(buildMovementDeck(movementCounts), readyPlayers.length, MOVEMENT_HAND_SIZE))
+    setCardPlayed(false)
+    setCardLog('')
     setPlayers(readyPlayers)
     setFirstPlayerIndex(randomFirst)
     setCurrentIndex(randomFirst)
@@ -288,7 +360,8 @@ function App() {
   // เครื่องมือทดสอบ (ชั่วคราว): ข้ามไปหน้ากระดานทันที โดยวาง Robo และ Obstacle ตามสถานการณ์
   // ไม่เปลี่ยนกติกาเกม: เล่นต่อด้วยฟังก์ชันเดินและจบตาตัวเดิมทั้งหมด (ผู้เล่นคนแรกเริ่มตาแล้ว วนขวา)
   function handleStartScenario(scenario) {
-    const readyPlayers = setupPlayers.map((player, index) => ({
+    const scenarioPlayers = scenario.playerCount ? setupPlayers.slice(0, scenario.playerCount) : setupPlayers
+    const readyPlayers = scenarioPlayers.map((player, index) => ({
       id: player.id,
       name: player.name.trim() || `Player ${index + 1}`,
       ...dealPlaceholders(index),
@@ -301,6 +374,9 @@ function App() {
     setPendingWarp(null)
     resetObstacles()
     setPlacedObstacles(buildScenarioObstacles(scenario))
+    setCardState(buildScenarioCardState(scenario, readyPlayers.length))
+    setCardPlayed(false)
+    setCardLog('')
     setPlayers(readyPlayers)
     setFirstPlayerIndex(0)
     setCurrentIndex(0)
@@ -318,6 +394,7 @@ function App() {
     setPendingTurnDirection(null)
     resetRobo()
     resetObstacles()
+    resetCards()
     setActiveScenario(null)
     setPhase('setup')
   }
@@ -346,12 +423,25 @@ function App() {
 
   function handleStartTurn() {
     hidePrivateInfo()
+    setCardPlayed(false)
     setTurnActive(true)
     setPhase('board')
   }
 
   function handleEndTurn() {
     if (pendingWarp) return // ต้องเลือกปลายทางของ Hole ก่อนจบตา
+
+    // เติมมือเมื่อมือหมด (ตัวแทนชั่วคราวของขั้น Draw/Refill ใน GDD หัวข้อ 26 จะย้ายไปผูกระบบรอบจริงใน M5)
+    if (cardState) {
+      const refill = refillHand(cardState, currentIndex, MOVEMENT_HAND_SIZE)
+      setCardState(refill.state)
+      if (refill.refilled) {
+        setCardLog(
+          `${players[currentIndex].name} มือหมด เติมมือ ${refill.drawn.length} ใบ${refill.reshuffled ? ' (สับกองทิ้งเป็นกองจั่วใหม่)' : ''}`,
+        )
+      }
+    }
+    setCardPlayed(false)
 
     const step = turnDirectionInfo.step
     const nextIndex = getNextIndex(currentIndex, players.length, step)
@@ -376,6 +466,7 @@ function App() {
     setPendingTurnDirection(null)
     resetRobo()
     resetObstacles()
+    resetCards()
     setActiveScenario(null)
     setPhase('setup')
   }
@@ -407,7 +498,18 @@ function App() {
             />
             <BoardSizePanel boardSize={boardSize} onChange={setBoardSize} />
             <RoboDirectionPanel direction={direction} onChange={setDirection} />
-            <button className="primary-button" type="button" onClick={handleStartGame}>
+            <CardCountsPanel
+              counts={movementCounts}
+              playerCount={setupPlayers.length}
+              onChange={handleChangeCardCount}
+              onReset={handleResetCardCounts}
+            />
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!canDealMovement(movementCounts, setupPlayers.length).ok}
+              onClick={handleStartGame}
+            >
               เริ่มเกม · สุ่มผู้เล่นคนแรก
             </button>
             {import.meta.env.DEV && (
@@ -492,10 +594,15 @@ function App() {
               crashCount={crashCount}
               lastMove={lastMove}
               pendingWarp={pendingWarp}
+              hand={cardState ? cardState.hands[currentIndex] : []}
+              drawCount={cardState ? cardState.drawPile.length : 0}
+              discardCount={cardState ? cardState.discardPile.length : 0}
+              cardPlayed={cardPlayed}
+              cardLog={cardLog}
               onStartTurn={handleStartTurn}
               onToggleHand={() => setHandOpen(!handOpen)}
               onToggleMission={() => setMissionOpen(!missionOpen)}
-              onMove={handleMove}
+              onPlayCard={handlePlayCard}
               onChooseWarp={handleChooseWarp}
               onEndTurn={handleEndTurn}
               onResetGame={handleResetGame}
