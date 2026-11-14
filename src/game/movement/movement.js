@@ -1,12 +1,16 @@
 // M3.1 — ตรรกะการเคลื่อนที่ของ Robo (ฟังก์ชันคำนวณล้วน ไม่ผูกกับหน้าจอ)
 // M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil, The Destroyer, The Spring)
+// M3.3 Magnet — เพิ่มขั้น "หลังเดินจบ" (settle): ท้ายทุกคำสั่ง และหลังเลือกปลายทาง Hole เสร็จ (finishHoleWarp)
 // R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
 // ทิศ: UP = แถวลดลง, DOWN = แถวเพิ่มขึ้น, LEFT = คอลัมน์ลดลง, RIGHT = คอลัมน์เพิ่มขึ้น
 
 import { getObstacleAt } from "../obstacles/obstacles.js";
-import { getObstacleBehavior } from "../obstacles/types/index.js";
+import {
+  getObstacleBehavior,
+  getSettleBehaviors,
+} from "../obstacles/types/index.js";
 
 // เรียงตามเข็มนาฬิกา: หันขวา = ไปตัวถัดไป, หันซ้าย = ย้อนกลับ
 export const FACINGS = ["UP", "RIGHT", "DOWN", "LEFT"];
@@ -91,6 +95,7 @@ function createResult(robo, facingAfterTurn, nextRobo, stepsTaken, extra = {}) {
     damageUids: [], // uid ของ Obstacle ทั้งหมดที่ต้องถูกทำให้ชำรุดจากผลนี้ (ให้ผู้เรียกจัดการ)
     damageUid: null, // ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
     triggers: [], // Obstacle ที่ "ทำงาน" ระหว่างคำสั่งนี้: [{ uid, typeId, effect }] (ไว้นับ Secret Mission ใน M6)
+    magnetEvents: [], // ผลของ The Magnet ในขั้น settle: [{ uid, effect, reason, fromRow, fromCol, toRow, toCol }]
     ...extra,
   };
 }
@@ -142,7 +147,7 @@ function makeTrigger(obstacle, effect) {
 //   damageUids = uid ของ Obstacle ทั้งหมดที่ต้องชำรุดจากคำสั่งนี้ (เรียงตามเวลาที่เกิด)
 //   damageUid = ตัวสุดท้ายของ damageUids (หรือ null) คงไว้ให้โค้ดเดิมใช้
 //   triggers = Obstacle ที่ทำงานทั้งหมดตามลำดับ (Oil/Spring ได้หลายรายการ ตามด้วยผลที่หยุด Robo)
-export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
+function moveCore(robo, command, boardSize, obstacles) {
   const steps = Math.max(0, Math.floor(command.steps));
   const facingAfterTurn = turnFacing(robo.facing, command.turn);
   const forward = FACING_DELTAS[facingAfterTurn];
@@ -369,6 +374,47 @@ export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
   return segment.result ?? finish({ row, col, facing: facingAfterTurn });
 }
 
+// ขั้น "หลังเดินจบ" (settle): ให้ทุกชนิดที่มี hook onSettle (ตอนนี้คือ The Magnet) ทำงานจากตำแหน่งสุดท้ายของ Robo
+// คืน null ถ้าไม่มีอะไรเกิดขึ้น ไม่เช่นนั้นคืน { robo, magnetEvents, damageUids, triggers }
+function settleAfterMove(robo, obstacles, boardSize) {
+  let current = robo;
+  let merged = null;
+
+  for (const behavior of getSettleBehaviors()) {
+    const out = behavior.onSettle({ robo: current, obstacles, boardSize });
+    if (!out) continue;
+    current = out.robo;
+    merged = merged ?? { magnetEvents: [], damageUids: [], triggers: [] };
+    merged.magnetEvents.push(...out.magnetEvents);
+    merged.damageUids.push(...out.damageUids);
+    merged.triggers.push(...out.triggers);
+  }
+
+  return merged ? { robo: current, ...merged } : null;
+}
+
+// ทำตามคำสั่งหนึ่งคำสั่ง (ดูกติกาละเอียดที่ moveCore ด้านบน) แล้วต่อด้วยขั้น settle (The Magnet)
+// - ถ้ารอผู้เล่นเลือกปลายทาง Hole (pendingWarp) จะยังไม่ settle: ให้เรียก finishHoleWarp หลังเลือกเสร็จ
+// - เพิ่ม magnetEvents (ว่างเมื่อไม่มี Magnet ทำงาน) และต่อท้าย damageUids / triggers ด้วยผลของ Magnet
+//   ถ้า Magnet ดึง Robo ฟิลด์ robo จะเป็นตำแหน่งหลังถูกดึง (stepsTaken/retreatSteps ไม่เปลี่ยน)
+export function applyMovementCommand(robo, command, boardSize, obstacles = []) {
+  const result = moveCore(robo, command, boardSize, obstacles);
+  if (result.pendingWarp) return result;
+
+  const settled = settleAfterMove(result.robo, obstacles, boardSize);
+  if (!settled) return result;
+
+  const damageUids = [...result.damageUids, ...settled.damageUids];
+  return {
+    ...result,
+    robo: settled.robo,
+    damageUids,
+    damageUid: damageUids[damageUids.length - 1],
+    triggers: [...result.triggers, ...settled.triggers],
+    magnetEvents: settled.magnetEvents,
+  };
+}
+
 // ทำการวาร์ปที่รอผู้เล่นเลือก (pendingWarp จาก applyMovementCommand)
 // robo = Robo ที่ยืนอยู่บน Hole ที่ก้าวเข้า, destinationUid = uid ของ Hole ปลายทางที่เลือก
 // คืนค่า { robo, warp, damageUid } โดย Robo คงทิศเดิม และ damageUid คือ Hole ปลายทางที่ต้องชำรุด
@@ -392,5 +438,28 @@ export function completeHoleWarp(robo, pendingWarp, destinationUid) {
       toCol: target.col,
     },
     damageUid: target.uid,
+  };
+}
+
+// เหมือน completeHoleWarp แต่ต่อด้วยขั้น settle (The Magnet) จากตำแหน่งปลายทางที่ Robo วาร์ปไปถึง
+// obstacles = รายการ Obstacle ณ ตอนนี้ (หลังทำให้ชำรุดตามผลของคำสั่งที่ทำให้เกิดการเลือกแล้ว), boardSize = ขนาดกระดาน
+// คืนค่า: ทุกฟิลด์ของ completeHoleWarp (robo เป็นตำแหน่งหลัง settle) + damageUids (Hole ปลายทาง ตามด้วย Magnet ที่ทำงาน)
+//        + magnetEvents + triggers (เฉพาะของ Magnet ในขั้น settle นี้)
+export function finishHoleWarp(
+  robo,
+  pendingWarp,
+  destinationUid,
+  obstacles,
+  boardSize,
+) {
+  const done = completeHoleWarp(robo, pendingWarp, destinationUid);
+  const settled = settleAfterMove(done.robo, obstacles, boardSize);
+
+  return {
+    ...done,
+    robo: settled ? settled.robo : done.robo,
+    damageUids: [done.damageUid, ...(settled ? settled.damageUids : [])],
+    magnetEvents: settled ? settled.magnetEvents : [],
+    triggers: settled ? settled.triggers : [],
   };
 }

@@ -27,6 +27,7 @@ export function describeCell(row, col) {
 // สรุปผลการเคลื่อนที่ครั้งล่าสุดเป็นข้อความ
 // ถ้ามี Oil ทำงานระหว่างทาง (extraSteps > 0) จะต่อท้ายว่าเดินเพิ่มกี่ช่อง และ Oil ชำรุดกี่อัน
 // ถ้ามี Spring ทำงาน (bounces) จะต่อท้ายว่า Spring กี่อัน ถอย/ดีด Robo รวมกี่ช่อง และ Spring ชำรุดกี่อัน
+// ถ้ามี Magnet ทำงาน (magnetEvents) จะต่อท้ายว่าดึง Robo จากไหนไปไหน / หักล้างกัน / Robo หยุดบนช่อง Magnet และ Magnet ชำรุดกี่อัน
 export function describeLastMove(lastMove) {
   if (!lastMove) return "ยังไม่ได้สั่งเคลื่อนที่";
   const oilText =
@@ -38,7 +39,46 @@ export function describeLastMove(lastMove) {
     springCount > 0
       ? ` · Spring ทำงาน ${springCount} อัน ถอย/ดีด Robo รวม ${lastMove.retreatSteps} ช่อง (Spring ชำรุด ${springCount} อัน)`
       : "";
-  return describeOutcome(lastMove) + oilText + springText;
+  return (
+    describeOutcome(lastMove) +
+    oilText +
+    springText +
+    describeMagnet(lastMove.magnetEvents)
+  );
+}
+
+// ข้อความของ The Magnet (ขั้นหลังเดินจบ) ตามลำดับที่เกิดขึ้น
+// event: { uid, effect: "pull" | "cancel", reason: "aura" | "on-cell" | "tie", fromRow, fromCol, toRow, toCol }
+function describeMagnet(events) {
+  if (!events || events.length === 0) return "";
+
+  const parts = [];
+  let index = 0;
+  while (index < events.length) {
+    const event = events[index];
+    if (event.effect === "pull") {
+      parts.push(
+        `Magnet ดึง Robo จาก ${describeCell(event.fromRow, event.fromCol)} ไป ${describeCell(event.toRow, event.toCol)}`,
+      );
+      index += 1;
+    } else if (event.reason === "tie") {
+      let count = 0;
+      while (index < events.length && events[index].reason === "tie") {
+        count += 1;
+        index += 1;
+      }
+      parts.push(
+        `Robo อยู่ในระยะ Magnet ${count} อันพร้อมกัน จึงอยู่กับที่ที่ ${describeCell(event.fromRow, event.fromCol)}`,
+      );
+    } else {
+      parts.push(
+        `Robo อยู่บนช่อง Magnet ที่ ${describeCell(event.fromRow, event.fromCol)} Magnet ทำงานแต่ไม่ดึง`,
+      );
+      index += 1;
+    }
+  }
+
+  return ` · ${parts.join(" · ")} (Magnet ชำรุด ${events.length} อัน)`;
 }
 
 // ข้อความตามผลที่ทำให้การเดินจบ (ไม่รวมส่วนของ Oil)

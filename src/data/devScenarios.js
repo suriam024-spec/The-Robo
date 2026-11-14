@@ -244,6 +244,93 @@ export const DEV_SCENARIOS = [
       "Robo กลับ Starting Point (แถว 5 · คอลัมน์ 5) ยังหันลง Crash เป็น 1 / 3 และ Spring แสดงสถานะชำรุด",
     ],
   },
+  {
+    id: "magnet-pull",
+    title: "15. The Magnet ดึง Robo",
+    summary: "จบในระยะ Magnet ถูกดึงไปลงบน Magnet ชำรุด แล้วลองกลับมาเมื่อครบรอบ",
+    boardSize: 9,
+    robo: { row: 8, col: 6, facing: "UP" },
+    obstacles: [{ typeId: "magnet", row: 5, col: 7 }],
+    steps: [
+      "กด Walk+",
+      "กด Walk",
+      "จบตาให้ครบทุกคน 1 รอบ แล้วกด Turn Left (แค่หัน ไม่เดิน)",
+    ],
+    expect: [
+      "ข้อ 1: Robo เดิน 2 ช่องไปจบที่ แถว 7 · คอลัมน์ 7 ซึ่งอยู่ในระยะ Magnet (แถว 6 · คอลัมน์ 8 อยู่แนวทแยง) จึงถูกดึงไปลงบนช่อง Magnet ที่ แถว 6 · คอลัมน์ 8 ยังหันขึ้น ข้อความบอกว่า Magnet ดึง Robo และ Magnet ชำรุด 1 อัน Crash เป็น 0 / 3",
+      "ข้อ 2: Robo เดินขึ้นไปที่ แถว 5 · คอลัมน์ 8 ซึ่งยังติดกับ Magnet แต่ Magnet ชำรุดอยู่จึงไม่ดึง Robo อยู่ที่ แถว 5 · คอลัมน์ 8",
+      "ข้อ 3: เมื่อครบรอบ Magnet กลับมาใช้งานได้ พอกด Turn Left (หันอย่างเดียว) Robo ถูกดึงกลับไปลงบนช่อง Magnet ที่ แถว 6 · คอลัมน์ 8 โดยหันไปทางซ้าย",
+    ],
+  },
+  {
+    id: "magnet-tie",
+    title: "16. The Magnet 2 อัน ดึงเท่ากัน",
+    summary: "อยู่ในระยะ Magnet 2 อัน Robo อยู่กับที่ ชำรุดทั้งคู่",
+    boardSize: 9,
+    robo: { row: 8, col: 6, facing: "UP" },
+    obstacles: [
+      { typeId: "magnet", row: 5, col: 7 },
+      { typeId: "magnet", row: 6, col: 5 },
+    ],
+    steps: ["กด Walk+"],
+    expect: [
+      "Robo เดิน 2 ช่องไปจบที่ แถว 7 · คอลัมน์ 7 ซึ่งอยู่ในระยะ Magnet ทั้งสองอัน (แถว 6 · คอลัมน์ 8 และ แถว 7 · คอลัมน์ 6) ดึงเท่ากัน Robo จึงอยู่กับที่",
+      "ข้อความบอกว่า Robo อยู่ในระยะ Magnet 2 อันพร้อมกัน จึงอยู่กับที่ และ Magnet ชำรุด 2 อัน (ทั้งสองอันแสดงสถานะชำรุด) Crash เป็น 0 / 3",
+    ],
+  },
+  {
+    id: "magnet-chain",
+    title: "17. The Magnet ดึงต่อเป็นทอด",
+    summary: "ดึงไปลงบน Magnet อันแรก แล้วอยู่ในระยะอันที่สอง ดึงต่อ",
+    boardSize: 9,
+    robo: { row: 8, col: 6, facing: "UP" },
+    obstacles: [
+      { typeId: "magnet", row: 6, col: 7 },
+      { typeId: "magnet", row: 5, col: 8 },
+    ],
+    steps: ["กด Walk"],
+    expect: [
+      "Robo เดิน 1 ช่องไปจบที่ แถว 8 · คอลัมน์ 7 อยู่ในระยะ Magnet อันแรก (แถว 7 · คอลัมน์ 8) เท่านั้น จึงถูกดึงไปลงบนช่องนั้น",
+      "จากช่องนั้นอยู่ในระยะ Magnet อันที่สอง (แถว 6 · คอลัมน์ 9) จึงถูกดึงต่อไปลงที่ แถว 6 · คอลัมน์ 9 ยังหันขึ้น",
+      "ข้อความบอกว่า Magnet ดึง Robo 2 ครั้ง และ Magnet ชำรุด 2 อัน (ทั้งสองอันแสดงสถานะชำรุด) Crash เป็น 0 / 3",
+    ],
+  },
+  {
+    id: "magnet-hole-choose",
+    title: "18. The Magnet หลังเลือกปลายทาง Hole",
+    summary: "Hole 3 ใบ เลือกปลายทางที่อยู่ติด Magnet แล้วถูกดึงต่อ",
+    boardSize: 9,
+    robo: { row: 8, col: 2, facing: "UP" },
+    obstacles: [
+      { typeId: "hole", row: 6, col: 2 },
+      { typeId: "hole", row: 6, col: 7 },
+      { typeId: "hole", row: 1, col: 1 },
+      { typeId: "magnet", row: 6, col: 1 },
+      { typeId: "magnet", row: 7, col: 8 },
+    ],
+    steps: [
+      "กด Walk+",
+      "เลือกปลายทาง แถว 7 · คอลัมน์ 8 (อยากลองอีกปลายทาง ให้กดปุ่ม 'เริ่มสถานการณ์นี้ใหม่')",
+    ],
+    expect: [
+      "ข้อ 1: Robo หยุดบน Hole ที่ แถว 7 · คอลัมน์ 3 มีปุ่มให้เลือก 2 ปุ่ม Magnet ที่ติด Hole นี้ (แถว 7 · คอลัมน์ 2) ยังไม่ดึง Robo เพราะยังไม่ได้เลือกปลายทาง และไม่ชำรุด",
+      "ข้อ 2: Robo วาร์ปไป แถว 7 · คอลัมน์ 8 ซึ่งอยู่ในระยะ Magnet (แถว 8 · คอลัมน์ 9) จึงถูกดึงไปลงที่ แถว 8 · คอลัมน์ 9 หันขึ้น Hole ที่เลือกชำรุด Magnet ที่ แถว 8 · คอลัมน์ 9 ชำรุด ส่วน Magnet ที่ แถว 7 · คอลัมน์ 2 ไม่ชำรุด",
+      "ถ้าเลือกปลายทางอีกใบ (แถว 2 · คอลัมน์ 2) Robo ไม่อยู่ในระยะ Magnet ใด จึงไม่ถูกดึง",
+    ],
+  },
+  {
+    id: "magnet-on-cell",
+    title: "19. Robo จบบนช่อง Magnet",
+    summary: "จบการเดินบนช่อง Magnet: Magnet ทำงานแต่ไม่ดึง ชำรุด",
+    boardSize: 9,
+    robo: { row: 8, col: 6, facing: "UP" },
+    obstacles: [{ typeId: "magnet", row: 6, col: 6 }],
+    steps: ["กด Walk+"],
+    expect: [
+      "Robo เดิน 2 ช่องไปลงพอดีบนช่อง Magnet ที่ แถว 7 · คอลัมน์ 7 ไม่ถูกดึงไปไหน ยังอยู่ที่เดิม",
+      "ข้อความบอกว่า Robo อยู่บนช่อง Magnet Magnet ทำงานแต่ไม่ดึง และ Magnet ชำรุด 1 อัน Crash เป็น 0 / 3",
+    ],
+  },
 ];
 
 // แปลงรายการ Obstacle ของสถานการณ์เป็นรูปแบบเดียวกับที่ใช้บนกระดานจริง

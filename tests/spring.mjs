@@ -449,7 +449,7 @@ test("เทียบกับผู้ตรวจอิสระ 40,000 กร
     "hole",
     "hole",
     "hole",
-    ...typeIds,
+    ...typeIds.filter((id) => id !== "magnet"),
   ];
   const seen = {
     spring: 0,

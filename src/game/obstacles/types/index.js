@@ -6,7 +6,9 @@
 //   onEnter(ctx)       — หลัง Robo ก้าวเข้าช่องแล้ว ไม่ว่าผ่านหรือลงพอดี (เช่น Hole)
 //   onLand(ctx)        — เมื่อการเดินช่วงหนึ่งจบลงที่ช่องนั้น และ Robo ก้าวเข้าช่องนั้นในช่วงนี้ (เช่น Spring)
 //                        ctx เพิ่ม chainIndex = จำนวน Spring ที่ทำงานมาก่อนในทอดเดียวกัน
-//   ctx = { obstacle, obstacles, row, col }  (obstacle = ใบที่อยู่ในช่องนั้น)
+//   ctx = { obstacle, obstacles, row, col }  (obstacle = ใบที่อยู่ในช่องนั้น ใช้กับ hook ที่ไม่ใช่ onSettle)
+//   onSettle(ctx)      — หลังการเดินและผลอื่นทั้งหมดจบแล้ว (เรียกครั้งเดียวต่อคำสั่ง และหลังเลือกปลายทาง Hole เสร็จ) (เช่น Magnet)
+//                        ctx = { robo, obstacles, boardSize } คืน null หรือ { robo, magnetEvents, damageUids, triggers }
 // แต่ละ hook คืน null (ไม่มีผล) หรือ "ผล" มาตรฐาน:
 //   { kind: "block", blockedBy }                       ขวาง (เฉพาะ onBeforeEnter)
 //   { kind: "bounce", distance, damageUid }           (เฉพาะ onLand) ถอย/ดีด Robo distance ช่องไปทิศตรงข้ามกับที่เข้ามา
@@ -24,6 +26,7 @@
 import { wallBehavior } from "./wall.js";
 import { destroyerBehavior } from "./destroyer.js";
 import { holeBehavior } from "./hole.js";
+import { magnetBehavior } from "./magnet.js";
 import { oilBehavior } from "./oil.js";
 import { scrapBehavior } from "./scrap.js";
 import { springBehavior } from "./spring.js";
@@ -32,6 +35,7 @@ const BEHAVIORS = {
   destroyer: destroyerBehavior,
   wall: wallBehavior,
   hole: holeBehavior,
+  magnet: magnetBehavior,
   oil: oilBehavior,
   scrap: scrapBehavior,
   spring: springBehavior,
@@ -39,4 +43,11 @@ const BEHAVIORS = {
 
 export function getObstacleBehavior(typeId) {
   return Object.hasOwn(BEHAVIORS, typeId) ? BEHAVIORS[typeId] : null;
+}
+
+// พฤติกรรมของทุกชนิดที่มี hook onSettle (ตอนนี้มีเฉพาะ Magnet) เรียงตามลำดับในทะเบียน
+export function getSettleBehaviors() {
+  return Object.values(BEHAVIORS).filter(
+    (behavior) => typeof behavior.onSettle === "function",
+  );
 }

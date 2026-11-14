@@ -24,8 +24,8 @@ import { dealPlaceholders } from './data/placeholders.js'
 import {
   MOVEMENT_COMMANDS,
   applyMovementCommand,
-  completeHoleWarp,
   createRobo,
+  finishHoleWarp,
   getStartPosition,
 } from './game/movement/movement.js'
 import {
@@ -163,6 +163,7 @@ function App() {
       bounces: result.bounces,
       warp: result.warp,
       pendingWarp: Boolean(result.pendingWarp),
+      magnetEvents: result.magnetEvents,
       facingAfterTurn: result.facingAfterTurn,
     })
   }
@@ -170,11 +171,22 @@ function App() {
   function handleChooseWarp(destinationUid) {
     if (!pendingWarp) return
 
-    const done = completeHoleWarp(robo, pendingWarp, destinationUid)
+    // วาร์ปเสร็จแล้วต่อด้วยขั้น Magnet (ถ้าปลายทางอยู่ในระยะ Magnet จะถูกดึง)
+    const done = finishHoleWarp(robo, pendingWarp, destinationUid, placedObstacles, boardSize)
     setRobo(done.robo)
-    setPlacedObstacles(damagePlacedObstacle(placedObstacles, done.damageUid))
+    setPlacedObstacles(
+      done.damageUids.reduce(
+        (list, uid) => damagePlacedObstacle(list, uid),
+        placedObstacles,
+      ),
+    )
     setPendingWarp(null)
-    setLastMove({ ...lastMove, pendingWarp: false, warp: done.warp })
+    setLastMove({
+      ...lastMove,
+      pendingWarp: false,
+      warp: done.warp,
+      magnetEvents: done.magnetEvents,
+    })
   }
 
   function resetObstacles() {
