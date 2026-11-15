@@ -138,3 +138,75 @@ export function countAllCards(state) {
     state.hands.reduce((sum, hand) => sum + hand.length, 0)
   );
 }
+
+// M4.2 — เติมมือให้ครบ targetSize ใบ (เท่าที่มีการ์ด) ใช้กับ Virus Draw (GDD หัวข้อ 25: จั่วจนมี 2 ใบ)
+// ต่างจาก refillHand: refillHand เติมเมื่อมือ "ว่างเท่านั้น" แต่ topUpHand เติมเมื่อมือ "ไม่ครบ"
+// มือครบหรือเกิน targetSize แล้ว → ไม่ทำอะไร (คืนสถานะเดิม) / กองจั่วหมดกลางทางสับกองทิ้งเป็นกองจั่วแล้วจั่วต่อ
+// คืนค่า { state, drawn, reshuffled }
+export function topUpHand(
+  state,
+  playerIndex,
+  targetSize,
+  randomFn = Math.random,
+) {
+  assertPlayer(state, playerIndex);
+  if (!Number.isInteger(targetSize) || targetSize < 0) {
+    throw new Error(`Invalid target size: ${targetSize}`);
+  }
+
+  const missing = targetSize - state.hands[playerIndex].length;
+  if (missing <= 0) {
+    return { state, drawn: [], reshuffled: false };
+  }
+  return drawToHand(state, playerIndex, missing, randomFn);
+}
+
+// M4.2 — สลับใต้กอง (GDD หัวข้อ 25: Virus 1 ใบ → ใต้กอง แล้วจั่ว 1 ใบ)
+// ลำดับ: (1) ถ้ากองจั่วว่างและกองทิ้งมีการ์ด → สับกองทิ้งเป็นกองจั่วก่อน (ใบที่เลือกอยู่ในมือ จึงไม่ถูกสับรวม)
+//        (2) เอาใบที่เลือกออกจากมือ ไปไว้ท้ายกองจั่ว (ใต้กอง)
+//        (3) จั่วใบบนสุด 1 ใบเข้ามือ (ต่อท้ายมือ)
+// กรณีกองจั่วและกองทิ้งว่างทั้งคู่ ใบที่ใส่ใต้กองคือใบเดียวในกอง จึงได้ใบเดิมกลับมา (ยอมรับตาม V2)
+// ถ้าไม่มีการ์ดนี้ในมือผู้เล่นจะ throw error
+// คืนค่า { state, card, drawn, reshuffled }  (card = ใบที่ใส่ใต้กอง, drawn = ใบที่จั่วได้)
+export function swapUnderDeck(
+  state,
+  playerIndex,
+  cardUid,
+  randomFn = Math.random,
+) {
+  assertPlayer(state, playerIndex);
+
+  const hand = state.hands[playerIndex];
+  const card = hand.find((item) => item.uid === cardUid);
+  if (!card) {
+    throw new Error(`Card ${cardUid} is not in player ${playerIndex}'s hand`);
+  }
+
+  let drawPile = [...state.drawPile];
+  let discardPile = [...state.discardPile];
+  let reshuffled = false;
+
+  if (drawPile.length === 0 && discardPile.length > 0) {
+    drawPile = shuffle(discardPile, randomFn);
+    discardPile = [];
+    reshuffled = true;
+  }
+
+  drawPile.push(card); // ใต้กอง = ท้ายอาร์เรย์
+  const drawn = drawPile.shift(); // ใบบนสุด = หัวอาร์เรย์ (ถ้ากองว่างมาก่อนจะได้ใบเดิม)
+
+  return {
+    state: {
+      drawPile,
+      discardPile,
+      hands: state.hands.map((current, index) =>
+        index === playerIndex
+          ? [...current.filter((item) => item.uid !== cardUid), drawn]
+          : [...current],
+      ),
+    },
+    card,
+    drawn,
+    reshuffled,
+  };
+}

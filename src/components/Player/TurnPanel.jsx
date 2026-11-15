@@ -1,7 +1,9 @@
 // M2: แผงตาของผู้เล่น (เริ่มตา / เปิด-ซ่อน Hand และ Secret Mission / จบตา)
 // M4.1: Hand แสดง Movement Cards จริง กดเล่นได้ 1 ใบต่อตา + แสดงผลการเดินและกล่องเลือกปลายทาง Hole (แทนแผงทดสอบเดิม)
+// M4.2: Hand แสดง Virus Cards จริง (ชื่อ / WITH-HACK / ข้อความย่อ) ยังเล่นไม่ได้ (ผลของการ์ดทำใน M4.3) + ปุ่มสลับใต้กอง ตาละ 1 ครั้ง
 import { CRASH_LIMIT } from '../../data/constants.js'
 import { MOVEMENT_HAND_SIZE, getCardCommand } from '../../game/cards/movementCards.js'
+import { VIRUS_HAND_SIZE, getVirusType } from '../../game/cards/virusCards.js'
 import { describeCell, describeCommand, describeLastMove } from '../../utils/describe.js'
 
 function TurnPanel({
@@ -19,17 +21,25 @@ function TurnPanel({
   drawCount,
   discardCount,
   cardPlayed,
+  virusHand,
+  virusDrawCount,
+  virusDiscardCount,
+  virusSwapped,
   cardLog,
   onStartTurn,
   onToggleHand,
   onToggleMission,
   onPlayCard,
+  onSwapVirus,
   onChooseWarp,
   onEndTurn,
   onResetGame,
 }) {
   const currentPlayer = players[currentIndex]
   const isChoosingWarp = Boolean(pendingWarp)
+  // สลับ Virus ใต้กองได้ตาละ 1 ครั้ง และเฉพาะตอนมี Virus ครบ 2 ใบ (V3)
+  const virusHandFull = virusHand.length >= VIRUS_HAND_SIZE
+  const canSwapVirus = virusHandFull && !virusSwapped
 
   return (
     <section className="turn-panel" aria-labelledby="turn-title">
@@ -85,7 +95,9 @@ function TurnPanel({
           </div>
 
           <p className="private-note" aria-live="polite">
-            กองจั่ว {drawCount} ใบ · กองทิ้ง {discardCount} ใบ
+            Movement กองจั่ว {drawCount} ใบ · กองทิ้ง {discardCount} ใบ
+            {' | '}
+            Virus กองจั่ว {virusDrawCount} ใบ · กองทิ้ง {virusDiscardCount} ใบ
             {cardLog ? ` · ล่าสุด: ${cardLog}` : ''}
           </p>
 
@@ -122,14 +134,44 @@ function TurnPanel({
                 </div>
               )}
 
-              <div className="card-group-label">Virus Cards (2) · ข้อมูลทดสอบชั่วคราว</div>
-              <ul className="card-row">
-                {currentPlayer.virusCards.map((card, index) => (
-                  <li className="game-card virus-card" key={`${card}-${index}`}>
-                    {card}
-                  </li>
-                ))}
-              </ul>
+              <div className="card-group-label">
+                Virus Cards ({virusHand.length}) · ยังเล่นไม่ได้ (ผลของการ์ดทำใน M4.3)
+              </div>
+              {virusHand.length === 0 ? (
+                <p className="private-note">
+                  มือ Virus ว่าง จะจั่วให้ครบ {VIRUS_HAND_SIZE} ใบเมื่อจบตา
+                </p>
+              ) : (
+                <ul className="card-row">
+                  {virusHand.map((card) => {
+                    const type = getVirusType(card.typeId)
+                    return (
+                      <li className="game-card virus-card" key={card.uid}>
+                        <div>
+                          {type ? type.label : card.typeId}
+                          {type ? ` · ${type.kind}` : ''}
+                        </div>
+                        <p className="private-note">{type ? type.summary : ''}</p>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={!canSwapVirus}
+                          onClick={() => onSwapVirus(card.uid)}
+                        >
+                          ใต้กอง + จั่วใหม่
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              <p className="private-note">
+                {virusSwapped
+                  ? 'สลับ Virus ใต้กองแล้วในตานี้ (ตาละ 1 ครั้ง)'
+                  : virusHandFull
+                    ? 'สลับ Virus 1 ใบไปไว้ใต้กอง แล้วจั่วใบบนสุดมาแทนได้ตาละ 1 ครั้ง'
+                    : `สลับใต้กองได้เฉพาะตอนมี Virus ครบ ${VIRUS_HAND_SIZE} ใบ`}
+              </p>
             </div>
           )}
 

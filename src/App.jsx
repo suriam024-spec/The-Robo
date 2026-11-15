@@ -20,7 +20,12 @@ import {
   MIN_PLAYERS,
   TURN_DIRECTIONS,
 } from './data/constants.js'
-import { DEV_SCENARIOS, buildScenarioCardState, buildScenarioObstacles } from './data/devScenarios.js'
+import {
+  DEV_SCENARIOS,
+  buildScenarioCardState,
+  buildScenarioObstacles,
+  buildScenarioVirusState,
+} from './data/devScenarios.js'
 import { dealPlaceholders } from './data/placeholders.js'
 import {
   applyMovementCommand,
@@ -44,33 +49,46 @@ import {
   getCardCommand,
   validateMovementCounts,
 } from './game/cards/movementCards.js'
-import { createCardState, playCard, refillHand } from './game/cards/deck.js'
+import {
+  DEFAULT_VIRUS_COUNTS,
+  VIRUS_HAND_SIZE,
+  buildVirusDeck,
+  canDealVirus,
+  validateVirusCounts,
+} from './game/cards/virusCards.js'
+import { createCardState, playCard, refillHand, swapUnderDeck, topUpHand } from './game/cards/deck.js'
 import { createDefaultSetupPlayers, getNextIndex, getTurnOrder } from './game/players.js'
 import { getDirectionInfo } from './utils/describe.js'
 
-// จำค่าจำนวนการ์ด Movement ที่ตั้งไว้ในเบราว์เซอร์นี้ (ถ้าอ่านไม่ได้หรือค่าไม่ผ่านการตรวจ ใช้ค่าเริ่มต้น)
-const COUNTS_STORAGE_KEY = 'therobo.movementCounts.v1'
+// จำค่าจำนวนการ์ดที่ตั้งไว้ในเบราว์เซอร์นี้ (ถ้าอ่านไม่ได้หรือค่าไม่ผ่านการตรวจ ใช้ค่าเริ่มต้น)
+const COUNTS_STORAGE_KEY = 'therobo.movementCounts.v1' // Movement (M4.1)
+const VIRUS_COUNTS_STORAGE_KEY = 'therobo.virusCounts.v1' // Virus (M4.2)
 
-function loadMovementCounts() {
+function loadCounts(storageKey, validate, defaults) {
   try {
-    const raw = window.localStorage.getItem(COUNTS_STORAGE_KEY)
+    const raw = window.localStorage.getItem(storageKey)
     if (raw) {
       const parsed = JSON.parse(raw)
-      if (validateMovementCounts(parsed).ok) return parsed
+      if (validate(parsed).ok) return parsed
     }
   } catch {
     // อ่านไม่ได้ → ใช้ค่าเริ่มต้น
   }
-  return { ...DEFAULT_MOVEMENT_COUNTS }
+  return { ...defaults }
 }
 
-function saveMovementCounts(counts) {
+function saveCounts(storageKey, counts) {
   try {
-    window.localStorage.setItem(COUNTS_STORAGE_KEY, JSON.stringify(counts))
+    window.localStorage.setItem(storageKey, JSON.stringify(counts))
   } catch {
     // เก็บไม่ได้ก็ใช้ต่อได้ แค่ไม่ถูกจำไว้
   }
 }
+
+const loadMovementCounts = () =>
+  loadCounts(COUNTS_STORAGE_KEY, validateMovementCounts, DEFAULT_MOVEMENT_COUNTS)
+const loadVirusCounts = () =>
+  loadCounts(VIRUS_COUNTS_STORAGE_KEY, validateVirusCounts, DEFAULT_VIRUS_COUNTS)
 
 function App() {
   // phase: 'setup' | 'direction' | 'obstacle-handoff' | 'obstacle' | 'board' | 'handoff'
@@ -100,6 +118,11 @@ function App() {
   const [cardState, setCardState] = useState(null) // { drawPile, discardPile, hands } (null ก่อนเริ่มเกม)
   const [cardPlayed, setCardPlayed] = useState(false)
   const [cardLog, setCardLog] = useState('')
+
+  // Virus Cards (M4.2): จำนวนต่อชนิดที่ตั้งจากหน้า Setup, สถานะกอง/มือ Virus, สลับใต้กองตานี้แล้วหรือยัง (ตาละ 1 ครั้ง)
+  const [virusCounts, setVirusCounts] = useState(loadVirusCounts)
+  const [virusState, setVirusState] = useState(null) // { drawPile, discardPile, hands } (null ก่อนเริ่มเกม)
+  const [virusSwapped, setVirusSwapped] = useState(false)
 
   // Obstacle Setup (M3.2)
   const [obstacleHands, setObstacleHands] = useState([]) // มือที่เหลือของผู้เล่นแต่ละคน
@@ -156,13 +179,25 @@ function App() {
   function handleChangeCardCount(typeId, value) {
     const next = { ...movementCounts, [typeId]: value }
     setMovementCounts(next)
-    if (validateMovementCounts(next).ok) saveMovementCounts(next)
+    if (validateMovementCounts(next).ok) saveCounts(COUNTS_STORAGE_KEY, next)
   }
 
   function handleResetCardCounts() {
     const next = { ...DEFAULT_MOVEMENT_COUNTS }
     setMovementCounts(next)
-    saveMovementCounts(next)
+    saveCounts(COUNTS_STORAGE_KEY, next)
+  }
+
+  function handleChangeVirusCount(typeId, value) {
+    const next = { ...virusCounts, [typeId]: value }
+    setVirusCounts(next)
+    if (validateVirusCounts(next).ok) saveCounts(VIRUS_COUNTS_STORAGE_KEY, next)
+  }
+
+  function handleResetVirusCounts() {
+    const next = { ...DEFAULT_VIRUS_COUNTS }
+    setVirusCounts(next)
+    saveCounts(VIRUS_COUNTS_STORAGE_KEY, next)
   }
 
   function resetRobo() {
@@ -176,6 +211,8 @@ function App() {
     setCardState(null)
     setCardPlayed(false)
     setCardLog('')
+    setVirusState(null)
+    setVirusSwapped(false)
   }
 
   // ทำให้ Obstacle uid นี้ชำรุดตามระยะของชนิดมัน (ถ้าชนิดนั้นไม่มีระบบชำรุด จะไม่เปลี่ยนอะไร)
@@ -233,6 +270,24 @@ function App() {
     setCardState(played.state)
     setCardPlayed(true)
     runMovement(command)
+  }
+
+  // สลับ Virus ใต้กอง (GDD หัวข้อ 25): ใบที่เลือกไปใต้กอง แล้วจั่วใบบนสุดมาแทน ตาละ 1 ครั้ง เฉพาะตอนมี Virus ครบ 2 ใบ
+  // ข้อความเหตุการณ์ไม่บอกชื่อการ์ด (บรรทัดสถานะผู้เล่นคนอื่นอาจเห็น)
+  function handleSwapVirus(cardUid) {
+    if (!virusState || virusSwapped) return
+    if (virusState.hands[currentIndex].length < VIRUS_HAND_SIZE) return
+    if (!virusState.hands[currentIndex].some((item) => item.uid === cardUid)) return
+
+    const result = swapUnderDeck(virusState, currentIndex, cardUid)
+    setVirusState(result.state)
+    setVirusSwapped(true)
+    const notes = []
+    if (result.reshuffled) notes.push('สับกองทิ้งเป็นกองจั่วใหม่')
+    if (result.drawn.uid === cardUid) notes.push('กองไม่มีใบอื่น ได้ใบเดิมกลับมา')
+    setCardLog(
+      `${players[currentIndex].name} สลับ Virus 1 ใบใต้กอง แล้วจั่วใหม่ 1 ใบ${notes.length > 0 ? ` (${notes.join(' · ')})` : ''}`,
+    )
   }
 
   function handleChooseWarp(destinationUid) {
@@ -333,7 +388,9 @@ function App() {
   }
 
   function handleStartGame() {
-    if (!canDealMovement(movementCounts, setupPlayers.length).ok) return // การ์ดไม่พอแจก (หน้า Setup แจ้งเตือนอยู่แล้ว)
+    // การ์ดไม่พอแจก (หน้า Setup แจ้งเตือนอยู่แล้ว)
+    if (!canDealMovement(movementCounts, setupPlayers.length).ok) return
+    if (!canDealVirus(virusCounts, setupPlayers.length).ok) return
 
     const readyPlayers = setupPlayers.map((player, index) => ({
       id: player.id,
@@ -348,6 +405,8 @@ function App() {
     setCardState(createCardState(buildMovementDeck(movementCounts), readyPlayers.length, MOVEMENT_HAND_SIZE))
     setCardPlayed(false)
     setCardLog('')
+    setVirusState(createCardState(buildVirusDeck(virusCounts), readyPlayers.length, VIRUS_HAND_SIZE))
+    setVirusSwapped(false)
     setPlayers(readyPlayers)
     setFirstPlayerIndex(randomFirst)
     setCurrentIndex(randomFirst)
@@ -377,6 +436,8 @@ function App() {
     setCardState(buildScenarioCardState(scenario, readyPlayers.length))
     setCardPlayed(false)
     setCardLog('')
+    setVirusState(buildScenarioVirusState(scenario, readyPlayers.length))
+    setVirusSwapped(false)
     setPlayers(readyPlayers)
     setFirstPlayerIndex(0)
     setCurrentIndex(0)
@@ -424,6 +485,7 @@ function App() {
   function handleStartTurn() {
     hidePrivateInfo()
     setCardPlayed(false)
+    setVirusSwapped(false)
     setTurnActive(true)
     setPhase('board')
   }
@@ -432,16 +494,29 @@ function App() {
     if (pendingWarp) return // ต้องเลือกปลายทางของ Hole ก่อนจบตา
 
     // เติมมือเมื่อมือหมด (ตัวแทนชั่วคราวของขั้น Draw/Refill ใน GDD หัวข้อ 26 จะย้ายไปผูกระบบรอบจริงใน M5)
+    // และจั่ว Virus ให้ครบ 2 ใบ (ตัวแทนชั่วคราวของ Virus Draw ใน GDD หัวข้อ 25 จะย้ายไป M5 เช่นกัน — V3)
+    const events = []
     if (cardState) {
       const refill = refillHand(cardState, currentIndex, MOVEMENT_HAND_SIZE)
       setCardState(refill.state)
       if (refill.refilled) {
-        setCardLog(
+        events.push(
           `${players[currentIndex].name} มือหมด เติมมือ ${refill.drawn.length} ใบ${refill.reshuffled ? ' (สับกองทิ้งเป็นกองจั่วใหม่)' : ''}`,
         )
       }
     }
+    if (virusState) {
+      const topUp = topUpHand(virusState, currentIndex, VIRUS_HAND_SIZE)
+      setVirusState(topUp.state)
+      if (topUp.drawn.length > 0) {
+        events.push(
+          `${players[currentIndex].name} จั่ว Virus เติมให้ครบ ${VIRUS_HAND_SIZE} ใบ (จั่ว ${topUp.drawn.length} ใบ${topUp.reshuffled ? ' · สับกองทิ้งเป็นกองจั่วใหม่' : ''})`,
+        )
+      }
+    }
+    if (events.length > 0) setCardLog(events.join(' / '))
     setCardPlayed(false)
+    setVirusSwapped(false)
 
     const step = turnDirectionInfo.step
     const nextIndex = getNextIndex(currentIndex, players.length, step)
@@ -499,15 +574,26 @@ function App() {
             <BoardSizePanel boardSize={boardSize} onChange={setBoardSize} />
             <RoboDirectionPanel direction={direction} onChange={setDirection} />
             <CardCountsPanel
+              kind="movement"
               counts={movementCounts}
               playerCount={setupPlayers.length}
               onChange={handleChangeCardCount}
               onReset={handleResetCardCounts}
             />
+            <CardCountsPanel
+              kind="virus"
+              counts={virusCounts}
+              playerCount={setupPlayers.length}
+              onChange={handleChangeVirusCount}
+              onReset={handleResetVirusCounts}
+            />
             <button
               className="primary-button"
               type="button"
-              disabled={!canDealMovement(movementCounts, setupPlayers.length).ok}
+              disabled={
+                !canDealMovement(movementCounts, setupPlayers.length).ok ||
+                !canDealVirus(virusCounts, setupPlayers.length).ok
+              }
               onClick={handleStartGame}
             >
               เริ่มเกม · สุ่มผู้เล่นคนแรก
@@ -598,11 +684,16 @@ function App() {
               drawCount={cardState ? cardState.drawPile.length : 0}
               discardCount={cardState ? cardState.discardPile.length : 0}
               cardPlayed={cardPlayed}
+              virusHand={virusState ? virusState.hands[currentIndex] : []}
+              virusDrawCount={virusState ? virusState.drawPile.length : 0}
+              virusDiscardCount={virusState ? virusState.discardPile.length : 0}
+              virusSwapped={virusSwapped}
               cardLog={cardLog}
               onStartTurn={handleStartTurn}
               onToggleHand={() => setHandOpen(!handOpen)}
               onToggleMission={() => setMissionOpen(!missionOpen)}
               onPlayCard={handlePlayCard}
+              onSwapVirus={handleSwapVirus}
               onChooseWarp={handleChooseWarp}
               onEndTurn={handleEndTurn}
               onResetGame={handleResetGame}
