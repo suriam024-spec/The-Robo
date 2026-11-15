@@ -102,3 +102,14 @@
   line-height: 1.4;
   opacity: 0.85;
 }
+
+/* หน้าตั้งค่าจำนวนการ์ด (M4.2.1): หัวหน้า / กล่อง Movement / กล่อง Virus / ปุ่มกลับ เรียงลงมาเว้นระยะ */
+.card-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-settings-page .screen-card {
+  max-width: none;
+}

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import './styles/main.css'
 import Board from './components/Board/Board.jsx'
 import BoardSizePanel from './components/Board/BoardSizePanel.jsx'
-import CardCountsPanel from './components/Cards/CardCountsPanel.jsx'
+import CardCountsSummary from './components/Cards/CardCountsSummary.jsx'
+import CardSettingsScreen from './components/Cards/CardSettingsScreen.jsx'
 import DevScenarioBanner from './components/Dev/DevScenarioBanner.jsx'
 import DevScenarioPanel from './components/Dev/DevScenarioPanel.jsx'
 import HandoffScreen from './components/HandoffScreen/HandoffScreen.jsx'
@@ -91,7 +92,7 @@ const loadVirusCounts = () =>
   loadCounts(VIRUS_COUNTS_STORAGE_KEY, validateVirusCounts, DEFAULT_VIRUS_COUNTS)
 
 function App() {
-  // phase: 'setup' | 'direction' | 'obstacle-handoff' | 'obstacle' | 'board' | 'handoff'
+  // phase: 'setup' | 'card-settings' | 'direction' | 'obstacle-handoff' | 'obstacle' | 'board' | 'handoff'
   const [phase, setPhase] = useState('setup')
 
   // Setup
@@ -465,6 +466,11 @@ function App() {
     setPhase('setup')
   }
 
+  // หน้าแยกตั้งค่าจำนวนการ์ด (M4.2.1): ค่าผู้เล่น/กระดาน/ทิศของ Robo อยู่ใน State ของ App จึงไม่หายตอนกลับมา
+  function handleOpenCardSettings() {
+    setPhase('card-settings')
+  }
+
   function handleConfirmTurnDirection() {
     if (!pendingTurnDirection) return
     setTurnDirection(pendingTurnDirection)
@@ -547,7 +553,10 @@ function App() {
   }
 
   const isScreenMode =
-    phase === 'direction' || phase === 'handoff' || phase === 'obstacle-handoff'
+    phase === 'direction' ||
+    phase === 'handoff' ||
+    phase === 'obstacle-handoff' ||
+    phase === 'card-settings'
   // หน้า Setup แสดงตัวอย่าง Robo ตามขนาดและทิศที่เลือก, ตอนเล่นใช้ตำแหน่งจริงจาก State
   const displayRobo = phase === 'setup' ? createRobo(boardSize, direction) : robo
   const startPosition = getStartPosition(boardSize)
@@ -573,19 +582,11 @@ function App() {
             />
             <BoardSizePanel boardSize={boardSize} onChange={setBoardSize} />
             <RoboDirectionPanel direction={direction} onChange={setDirection} />
-            <CardCountsPanel
-              kind="movement"
-              counts={movementCounts}
+            <CardCountsSummary
+              movementCounts={movementCounts}
+              virusCounts={virusCounts}
               playerCount={setupPlayers.length}
-              onChange={handleChangeCardCount}
-              onReset={handleResetCardCounts}
-            />
-            <CardCountsPanel
-              kind="virus"
-              counts={virusCounts}
-              playerCount={setupPlayers.length}
-              onChange={handleChangeVirusCount}
-              onReset={handleResetVirusCounts}
+              onOpen={handleOpenCardSettings}
             />
             <button
               className="primary-button"
@@ -603,6 +604,19 @@ function App() {
             )}
           </div>
         </>
+      )}
+
+      {phase === 'card-settings' && (
+        <CardSettingsScreen
+          movementCounts={movementCounts}
+          virusCounts={virusCounts}
+          playerCount={setupPlayers.length}
+          onChangeMovement={handleChangeCardCount}
+          onResetMovement={handleResetCardCounts}
+          onChangeVirus={handleChangeVirusCount}
+          onResetVirus={handleResetVirusCounts}
+          onBack={handleBackToSetup}
+        />
       )}
 
       {phase === 'direction' && (
