@@ -58,6 +58,7 @@ import {
   validateVirusCounts,
 } from './game/cards/virusCards.js'
 import { createCardState, playCard, refillHand, swapUnderDeck, topUpHand } from './game/cards/deck.js'
+import { isMovementModifier, playMovementWithVirus } from './game/viruses/withModifiers.js'
 import { createDefaultSetupPlayers, getNextIndex, getTurnOrder } from './game/players.js'
 import { getDirectionInfo } from './utils/describe.js'
 
@@ -124,6 +125,11 @@ function App() {
   const [virusCounts, setVirusCounts] = useState(loadVirusCounts)
   const [virusState, setVirusState] = useState(null) // { drawPile, discardPile, hands } (null ก่อนเริ่มเกม)
   const [virusSwapped, setVirusSwapped] = useState(false)
+
+  // Virus WITH กลุ่มปรับการเดิน (M4.3): คิว Virus ที่รอติดกับ Movement ใบถัดไป [{ uid, typeId, ownerIndex }]
+  // และ Virus ที่ผู้เล่นเลือกแนบกับ Movement ของตานี้ (uid ของการ์ดในมือ) — ใช้ตอนกดเล่น Movement เท่านั้น
+  const [pendingViruses, setPendingViruses] = useState([])
+  const [attachedVirusUid, setAttachedVirusUid] = useState(null)
 
   // Obstacle Setup (M3.2)
   const [obstacleHands, setObstacleHands] = useState([]) // มือที่เหลือของผู้เล่นแต่ละคน
@@ -214,6 +220,8 @@ function App() {
     setCardLog('')
     setVirusState(null)
     setVirusSwapped(false)
+    setPendingViruses([])
+    setAttachedVirusUid(null)
   }
 
   // ทำให้ Obstacle uid นี้ชำรุดตามระยะของชนิดมัน (ถ้าชนิดนั้นไม่มีระบบชำรุด จะไม่เปลี่ยนอะไร)
@@ -224,7 +232,8 @@ function App() {
   }
 
   // เดิน Robo ตามคำสั่งของการ์ดที่เล่น (ตรรกะการเดินเป็นของเดิมทั้งหมด)
-  function runMovement(command) {
+  // command = คำสั่งที่เดินจริง (อาจถูก Virus ปรับแล้ว) / info = { viruses: [Virus ที่ทำงานกับคำสั่งนี้] } ไว้แสดงผลเท่านั้น
+  function runMovement(command, info = { viruses: [] }) {
     const result = applyMovementCommand(robo, command, boardSize, placedObstacles)
     setRobo(result.robo)
     // ตกแมพ (crashed) และพังจาก Destroyer (destroyed) นับ Crash +1 ร่วมกัน (OWNER ตัดสิน D2)
@@ -243,6 +252,10 @@ function App() {
     setLastMove({
       label: command.label,
       steps: command.steps,
+      turn: command.turn,
+      reversed: command.reverse === true,
+      jumped: command.jump === true,
+      viruses: info.viruses,
       stepsTaken: result.stepsTaken,
       crashed: result.crashed,
       blocked: result.blocked,
@@ -267,10 +280,36 @@ function App() {
     const command = card ? getCardCommand(card) : null
     if (!command) return
 
+    // Virus ที่ผู้เล่นแนบ (ถ้ามี): Virus ที่ค้างอยู่ทำงานกับ Movement นี้ก่อน แล้วใบที่แนบเข้าคิวรอ Movement ใบถัดไป (Movement → Virus)
+    const attachedCard =
+      virusState && attachedVirusUid
+        ? (virusState.hands[currentIndex].find((item) => item.uid === attachedVirusUid) ?? null)
+        : null
+    const withVirus = playMovementWithVirus(pendingViruses, command, attachedCard, currentIndex)
+
     const played = playCard(cardState, currentIndex, cardUid)
     setCardState(played.state)
     setCardPlayed(true)
-    runMovement(command)
+    if (attachedCard) {
+      // Virus ที่แนบไปกองทิ้ง (ผลของมันรอในคิว) และจะถูกจั่วเติมให้ครบ 2 ใบตอนจบตา
+      setVirusState(playCard(virusState, currentIndex, attachedCard.uid).state)
+    }
+    setPendingViruses(withVirus.pending)
+    setAttachedVirusUid(null)
+    runMovement(withVirus.command, {
+      viruses: withVirus.applied.map((item) => ({
+        ...item,
+        ownerName: players[item.ownerIndex]?.name ?? '?',
+      })),
+    })
+  }
+
+  // เลือก/ยกเลิก Virus ที่จะแนบกับ Movement ของตานี้ (แนบได้ตาละ 1 ใบ เฉพาะ Virus ที่ทำงานแล้ว และก่อนเล่น Movement)
+  function handleToggleAttachVirus(cardUid) {
+    if (!virusState || cardPlayed || pendingWarp) return
+    const card = virusState.hands[currentIndex].find((item) => item.uid === cardUid)
+    if (!card || !isMovementModifier(card.typeId)) return
+    setAttachedVirusUid(attachedVirusUid === cardUid ? null : cardUid)
   }
 
   // สลับ Virus ใต้กอง (GDD หัวข้อ 25): ใบที่เลือกไปใต้กอง แล้วจั่วใบบนสุดมาแทน ตาละ 1 ครั้ง เฉพาะตอนมี Virus ครบ 2 ใบ
@@ -283,6 +322,7 @@ function App() {
     const result = swapUnderDeck(virusState, currentIndex, cardUid)
     setVirusState(result.state)
     setVirusSwapped(true)
+    if (attachedVirusUid === cardUid) setAttachedVirusUid(null) // ใบที่แนบไว้ถูกสลับไปใต้กอง
     const notes = []
     if (result.reshuffled) notes.push('สับกองทิ้งเป็นกองจั่วใหม่')
     if (result.drawn.uid === cardUid) notes.push('กองไม่มีใบอื่น ได้ใบเดิมกลับมา')
@@ -408,6 +448,8 @@ function App() {
     setCardLog('')
     setVirusState(createCardState(buildVirusDeck(virusCounts), readyPlayers.length, VIRUS_HAND_SIZE))
     setVirusSwapped(false)
+    setPendingViruses([])
+    setAttachedVirusUid(null)
     setPlayers(readyPlayers)
     setFirstPlayerIndex(randomFirst)
     setCurrentIndex(randomFirst)
@@ -439,6 +481,8 @@ function App() {
     setCardLog('')
     setVirusState(buildScenarioVirusState(scenario, readyPlayers.length))
     setVirusSwapped(false)
+    setPendingViruses([])
+    setAttachedVirusUid(null)
     setPlayers(readyPlayers)
     setFirstPlayerIndex(0)
     setCurrentIndex(0)
@@ -492,6 +536,7 @@ function App() {
     hidePrivateInfo()
     setCardPlayed(false)
     setVirusSwapped(false)
+    setAttachedVirusUid(null)
     setTurnActive(true)
     setPhase('board')
   }
@@ -523,6 +568,7 @@ function App() {
     if (events.length > 0) setCardLog(events.join(' / '))
     setCardPlayed(false)
     setVirusSwapped(false)
+    setAttachedVirusUid(null) // ถ้าแนบไว้แล้วไม่ได้เล่น Movement Virus ใบนั้นยังอยู่ในมือ ไม่ถูกใช้
 
     const step = turnDirectionInfo.step
     const nextIndex = getNextIndex(currentIndex, players.length, step)
@@ -702,12 +748,15 @@ function App() {
               virusDrawCount={virusState ? virusState.drawPile.length : 0}
               virusDiscardCount={virusState ? virusState.discardPile.length : 0}
               virusSwapped={virusSwapped}
+              pendingViruses={pendingViruses}
+              attachedVirusUid={attachedVirusUid}
               cardLog={cardLog}
               onStartTurn={handleStartTurn}
               onToggleHand={() => setHandOpen(!handOpen)}
               onToggleMission={() => setMissionOpen(!missionOpen)}
               onPlayCard={handlePlayCard}
               onSwapVirus={handleSwapVirus}
+              onToggleAttachVirus={handleToggleAttachVirus}
               onChooseWarp={handleChooseWarp}
               onEndTurn={handleEndTurn}
               onResetGame={handleResetGame}

@@ -2,6 +2,9 @@
 // M3.3 — เพิ่มการตรวจ Obstacle ระหว่างเดิน (The Wall, The Hole, The Scrap, The Oil, The Destroyer, The Spring)
 // M3.3 Magnet — เพิ่มขั้น "หลังเดินจบ" (settle): ท้ายทุกคำสั่ง และหลังเลือกปลายทาง Hole เสร็จ (finishHoleWarp)
 // R2 — ลูปเดินไม่รู้จักชื่อชนิด Obstacle แล้ว: ถามทะเบียนใน obstacles/types/index.js แทน
+// M4.3 (Virus WITH กลุ่ม 1) — คำสั่งเดินเลือกใส่ได้อีก 2 ฟิลด์ (ไม่ใส่ = พฤติกรรมเดิมทุกอย่าง):
+//   reverse: true  → ถอยหลัง (เคลื่อนที่ไปทิศตรงข้ามกับทิศที่หัน ทิศหันคงเดิม) ใช้กับ "ย้อนรอย"
+//   jump: true     → เดินแบบเว้นช่อง ใช้กับ "กระโดด" (OWNER ตัดสิน Q4) ดูรายละเอียดที่ moveCore
 //
 // พิกัดใช้ row/col เริ่มนับจาก 0 (แถวบนสุด = 0, คอลัมน์ซ้ายสุด = 0)
 // ทิศ: UP = แถวลดลง, DOWN = แถวเพิ่มขึ้น, LEFT = คอลัมน์ลดลง, RIGHT = คอลัมน์เพิ่มขึ้น
@@ -134,6 +137,16 @@ function makeTrigger(obstacle, effect) {
 //   จะไม่ทำให้ Hole นั้นทำงาน และ Robo ที่วาร์ปมาถึงปลายทางจะไม่วาร์ปซ้ำ
 //   Obstacle ที่ทำงานแล้วถือว่าชำรุดทันทีตลอดคำสั่งนี้ (เพราะ Spring ทำให้ Robo กลับมาช่องเดิมได้)
 //
+// - reverse (ย้อนรอย): ช่วงเดินหลักไปทิศตรงข้ามกับทิศที่หัน (ทิศหันคงเดิม) ก้าวที่ถอยเป็นก้าวปกติทุกอย่าง
+//   ใช้ "ทิศที่เคลื่อนที่จริง" (Oil เดินเพิ่มทิศนั้น, Spring ถอยตรงข้ามกับทิศที่เข้ามา)
+// - jump (กระโดด, OWNER ตัดสิน Q4): ทุกก้าวของช่วงเดินหลักกระโดดข้ามทีละช่อง (ก้าวละ 2 ช่อง รวมก้าวที่ได้เพิ่มจาก Oil)
+//   · ช่องที่ข้าม: Obstacle ไม่ทำงาน และ Wall ไม่ขวาง
+//   · ช่องที่ลง: ทำงานตามปกติ (Hole/Scrap/Oil/Destroyer ฯลฯ) ลงนอกกระดาน = ตกแมพ
+//   · ช่องที่ลงเป็น Wall → หยุดที่ช่องที่ข้าม (ถ้าช่องนั้นเป็น Wall ด้วย Robo ยืนไม่ได้ จึงอยู่ที่เดิม) ยกเลิกก้าวที่เหลือ
+//     ช่องที่ข้ามซึ่ง Robo ไปหยุดอยู่ ไม่ถือว่า "ก้าวเข้า" Obstacle ในช่องนั้นจึงไม่ทำงาน (Spring ก็ไม่ทำงาน)
+//   · การถอย/ดีดของ Spring ไม่ใช่การกระโดด (เดินทีละช่องตามเดิม)
+//   · stepsTaken นับ 1 ต่อการกระโดด 1 ครั้งที่ลงสำเร็จ
+//
 // obstacles = รายการ Obstacle บนกระดาน ({ uid, typeId, row, col, damagedTurns, ... })
 //
 // คืนค่า: { robo, crashed, blocked, blockedBy, stepsTaken, facingBefore, facingAfterTurn,
@@ -150,7 +163,14 @@ function makeTrigger(obstacle, effect) {
 function moveCore(robo, command, boardSize, obstacles) {
   const steps = Math.max(0, Math.floor(command.steps));
   const facingAfterTurn = turnFacing(robo.facing, command.turn);
-  const forward = FACING_DELTAS[facingAfterTurn];
+  const facingDelta = FACING_DELTAS[facingAfterTurn];
+  // ถอยหลัง (ย้อนรอย): ทิศเคลื่อนที่จริงตรงข้ามกับทิศหัน / กระโดด: ช่วงเดินหลักก้าวละ 2 ช่อง
+  const forward =
+    command.reverse === true
+      ? { row: -facingDelta.row, col: -facingDelta.col }
+      : facingDelta;
+  const jumpMode = command.jump === true;
+  let landSuppressed = false; // Robo ไปหยุดบนช่องที่ข้าม (เพราะช่องที่ลงเป็น Wall) → Spring ช่องนั้นไม่ทำงาน
 
   let row = robo.row;
   let col = robo.col;
@@ -201,10 +221,11 @@ function moveCore(robo, command, boardSize, obstacles) {
   const runSegment = (delta, count, isPrimary) => {
     let totalSteps = count; // เพิ่มได้ระหว่างเดิน (The Oil)
     let taken = 0;
+    const hop = isPrimary && jumpMode ? 2 : 1;
 
     for (let step = 0; step < totalSteps; step += 1) {
-      const nextRow = row + delta.row;
-      const nextCol = col + delta.col;
+      const nextRow = row + delta.row * hop;
+      const nextCol = col + delta.col * hop;
 
       if (!isInsideBoard(nextRow, nextCol, boardSize)) {
         const start = getStartPosition(boardSize);
@@ -231,6 +252,27 @@ function moveCore(robo, command, boardSize, obstacles) {
         if (effect?.kind === "block") {
           blockedBy = blockedBy ?? effect.blockedBy;
           triggerLog.push(makeTrigger(here, effect.kind));
+          if (hop === 2) {
+            // กระโดดแล้วช่องที่ลงเป็น Wall: หยุดที่ช่องที่ข้าม (ถ้าช่องนั้นเป็น Wall ด้วยก็อยู่ที่เดิม)
+            const midRow = row + delta.row;
+            const midCol = col + delta.col;
+            const midHere = getObstacleAt(field, midRow, midCol);
+            const midBehavior = midHere
+              ? getObstacleBehavior(midHere.typeId)
+              : null;
+            const midBlocks =
+              midBehavior?.onBeforeEnter?.({
+                obstacle: midHere,
+                obstacles: field,
+                row: midRow,
+                col: midCol,
+              })?.kind === "block";
+            if (!midBlocks) {
+              row = midRow;
+              col = midCol;
+              landSuppressed = true;
+            }
+          }
           return { result: null, taken };
         }
         if (effect) {
@@ -340,7 +382,7 @@ function moveCore(robo, command, boardSize, obstacles) {
 
   // เมื่อการเดินช่วงหนึ่งจบลง ตรวจว่า Robo ลงพอดีบนช่องที่มี onLand (Spring) หรือไม่
   // ถ้ามี → ทำงาน แล้วเดินอีกช่วงไปทิศตรงข้าม จนกว่าจะไม่มี Spring ให้ทำงานต่อ
-  while (segment.result === null && segment.taken > 0) {
+  while (segment.result === null && segment.taken > 0 && !landSuppressed) {
     const field = liveObstacles();
     const here = getObstacleAt(field, row, col);
     const behavior = here ? getObstacleBehavior(here.typeId) : null;

@@ -1,9 +1,12 @@
 // M2: แผงตาของผู้เล่น (เริ่มตา / เปิด-ซ่อน Hand และ Secret Mission / จบตา)
 // M4.1: Hand แสดง Movement Cards จริง กดเล่นได้ 1 ใบต่อตา + แสดงผลการเดินและกล่องเลือกปลายทาง Hole (แทนแผงทดสอบเดิม)
-// M4.2: Hand แสดง Virus Cards จริง (ชื่อ / WITH-HACK / ข้อความย่อ) ยังเล่นไม่ได้ (ผลของการ์ดทำใน M4.3) + ปุ่มสลับใต้กอง ตาละ 1 ครั้ง
+// M4.2: Hand แสดง Virus Cards จริง (ชื่อ / WITH-HACK / ข้อความย่อ) + ปุ่มสลับใต้กอง ตาละ 1 ครั้ง
+// M4.3 กลุ่ม 1: Virus ที่ทำงานแล้ว (ขาหัก / ขาหัก+ / ย้อนรอย / กระโดด) กดแนบกับ Movement ของตาได้ 1 ใบ
+//   + กล่อง "VIRUS ที่รอผล" (ทุกคนเห็น) แสดง Virus ที่จะไปติดกับ Movement ใบถัดไป
 import { CRASH_LIMIT } from '../../data/constants.js'
 import { MOVEMENT_HAND_SIZE, getCardCommand } from '../../game/cards/movementCards.js'
 import { VIRUS_HAND_SIZE, getVirusType } from '../../game/cards/virusCards.js'
+import { isMovementModifier } from '../../game/viruses/withModifiers.js'
 import { describeCell, describeCommand, describeLastMove } from '../../utils/describe.js'
 
 function TurnPanel({
@@ -25,12 +28,15 @@ function TurnPanel({
   virusDrawCount,
   virusDiscardCount,
   virusSwapped,
+  pendingViruses,
+  attachedVirusUid,
   cardLog,
   onStartTurn,
   onToggleHand,
   onToggleMission,
   onPlayCard,
   onSwapVirus,
+  onToggleAttachVirus,
   onChooseWarp,
   onEndTurn,
   onResetGame,
@@ -40,6 +46,9 @@ function TurnPanel({
   // สลับ Virus ใต้กองได้ตาละ 1 ครั้ง และเฉพาะตอนมี Virus ครบ 2 ใบ (V3)
   const virusHandFull = virusHand.length >= VIRUS_HAND_SIZE
   const canSwapVirus = virusHandFull && !virusSwapped
+  // Virus ที่แนบกับ Movement ของตานี้ (ถ้ามี) — ใช้แสดงข้อความเตือนใต้การ์ด Movement
+  const attachedCard = virusHand.find((item) => item.uid === attachedVirusUid) ?? null
+  const attachedType = attachedCard ? getVirusType(attachedCard.typeId) : null
 
   return (
     <section className="turn-panel" aria-labelledby="turn-title">
@@ -101,6 +110,26 @@ function TurnPanel({
             {cardLog ? ` · ล่าสุด: ${cardLog}` : ''}
           </p>
 
+          <div className="private-card">
+            <div className="private-card-title">
+              VIRUS ที่รอผล <span>· ติดกับ Movement ใบถัดไป</span>
+            </div>
+            {pendingViruses.length === 0 ? (
+              <p className="private-note">ไม่มี</p>
+            ) : (
+              <ul className="card-row">
+                {pendingViruses.map((item) => {
+                  const type = getVirusType(item.typeId)
+                  return (
+                    <li className="game-card virus-card" key={item.uid}>
+                      {type ? type.label : item.typeId} · จาก {players[item.ownerIndex]?.name ?? '?'}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+
           {handOpen && (
             <div className="private-card hand-card">
               <div className="private-card-title">
@@ -134,8 +163,14 @@ function TurnPanel({
                 </div>
               )}
 
+              {attachedType && !cardPlayed && (
+                <p className="private-note">
+                  แนบ {attachedType.label} ไว้แล้ว: ผลจะไปติด Movement ใบถัดไป (ไม่ใช่ใบที่เล่นตานี้)
+                </p>
+              )}
+
               <div className="card-group-label">
-                Virus Cards ({virusHand.length}) · ยังเล่นไม่ได้ (ผลของการ์ดทำใน M4.3)
+                Virus Cards ({virusHand.length}) · แนบกับ Movement ได้ตาละ 1 ใบ
               </div>
               {virusHand.length === 0 ? (
                 <p className="private-note">
@@ -152,6 +187,21 @@ function TurnPanel({
                           {type ? ` · ${type.kind}` : ''}
                         </div>
                         <p className="private-note">{type ? type.summary : ''}</p>
+                        {isMovementModifier(card.typeId) ? (
+                          <button
+                            className={`toggle-button ${attachedVirusUid === card.uid ? 'open' : ''}`}
+                            type="button"
+                            aria-pressed={attachedVirusUid === card.uid}
+                            disabled={cardPlayed || isChoosingWarp}
+                            onClick={() => onToggleAttachVirus(card.uid)}
+                          >
+                            {attachedVirusUid === card.uid
+                              ? '✓ แนบอยู่ (กดเพื่อยกเลิก)'
+                              : 'แนบกับ Movement ตานี้'}
+                          </button>
+                        ) : (
+                          <p className="private-note">ยังใช้งานไม่ได้ (ผลของการ์ดนี้ยังไม่ได้ทำ)</p>
+                        )}
                         <button
                           className="secondary-button"
                           type="button"
